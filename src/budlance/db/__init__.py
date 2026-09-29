@@ -1,0 +1,58 @@
+"""Database and persistence package for Budlance."""
+
+from budlance.db.client import get_supabase_client, is_database_connected
+from budlance.db.models import (
+    User,
+    Trip,
+    TripIntent,
+    TripOption,
+    FlightOption,
+    HotelOption,
+    PlaceOption,
+    Itinerary,
+    BudgetAllocation,
+    LedgerEntry,
+    PlanAttempt,
+    RescueEvent,
+    SearchCache,
+    ApiUsage,
+)
+from budlance.db.repositories import (
+    UserRepository,
+    TripRepository,
+    IntentRepository,
+    ItineraryRepository,
+    LedgerRepository,
+    AttemptRepository,
+    RescueRepository,
+    CacheRepository,
+    UsageRepository,
+)
+
+__all__ = [
+    "get_supabase_client",
+    "is_database_connected",
+    "User",
+    "Trip",
+    "TripIntent",
+    "TripOption",
+    "FlightOption",
+    "HotelOption",
+    "PlaceOption",
+    "Itinerary",
+    "BudgetAllocation",
+    "LedgerEntry",
+    "PlanAttempt",
+    "RescueEvent",
+    "SearchCache",
+    "ApiUsage",
+    "UserRepository",
+    "TripRepository",
+    "IntentRepository",
+    "ItineraryRepository",
+    "LedgerRepository",
+    "AttemptRepository",
+    "RescueRepository",
+    "CacheRepository",
+    "UsageRepository",
+]

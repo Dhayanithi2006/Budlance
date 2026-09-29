@@ -1,0 +1,57 @@
+{
+  "corridors": [
+    {
+      "origin": "Chennai",
+      "destination": "Bangalore",
+      "distance_km": 350,
+      "train_name": "Shatabdi Express",
+      "duration_hours": 5.0,
+      "classes": {
+        "CC": 750,
+        "EC": 1450,
+        "2S": 220
+      },
+      "is_fallback": true
+    },
+    {
+      "origin": "Mumbai",
+      "destination": "Goa",
+      "distance_km": 590,
+      "train_name": "Mandovi Express / Vande Bharat",
+      "duration_hours": 8.5,
+      "classes": {
+        "SL": 420,
+        "3A": 1150,
+        "2A": 1650,
+        "CC": 1200
+      },
+      "is_fallback": true
+    },
+    {
+      "origin": "Bangalore",
+      "destination": "Kochi",
+      "distance_km": 540,
+      "train_name": "Kanyakumari Express",
+      "duration_hours": 10.0,
+      "classes": {
+        "SL": 360,
+        "3A": 980,
+        "2A": 1400
+      },
+      "is_fallback": true
+    },
+    {
+      "origin": "Delhi",
+      "destination": "Jaipur",
+      "distance_km": 300,
+      "train_name": "Ajmer Shatabdi",
+      "duration_hours": 4.5,
+      "classes": {
+        "CC": 650,
+        "EC": 1250,
+        "2S": 180
+      },
+      "is_fallback": true
+    }
+  ]
+}

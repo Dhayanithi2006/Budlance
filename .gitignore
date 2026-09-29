@@ -1,0 +1,136 @@
+# ─────────────────────────────────────────────
+# Secrets & Environment
+# ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─────────────────────────────────────────────
+# Python Bytecode & Caches
+# ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+.Python
+
+# ─────────────────────────────────────────────
+# Build / Distribution
+# ─────────────────────────────────────────────
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+*.egg
+.installed.cfg
+SHEBANG
+
+# ─────────────────────────────────────────────
+# Virtual Environments
+# ─────────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+
+# ─────────────────────────────────────────────
+# Test Reports & Coverage
+# ─────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+coverage*.xml
+junit*.xml
+test-results/
+test_results/
+reports/
+*.report
+*.html
+!docs/**/*.html
+
+# ─────────────────────────────────────────────
+# Type Checkers & Linters
+# ─────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.dmypy.json
+dmypy.json
+
+# ─────────────────────────────────────────────
+# Logs & Temporary Files
+# ─────────────────────────────────────────────
+*.log
+*.logs
+logs/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.out
+*.pid
+nohup.out
+
+# ─────────────────────────────────────────────
+# ngrok
+# ─────────────────────────────────────────────
+ngrok.yml
+ngrok.log
+.ngrok2/
+
+# ─────────────────────────────────────────────
+# Docker (local volumes, override files)
+# ─────────────────────────────────────────────
+docker-compose.override.yml
+.docker/
+
+# ─────────────────────────────────────────────
+# OS Artifacts
+# ─────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ─────────────────────────────────────────────
+# IDE & Editors
+# ─────────────────────────────────────────────
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# ─────────────────────────────────────────────
+# Jupyter / IPython
+# ─────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ─────────────────────────────────────────────
+# Misc Scratch / Local
+# ─────────────────────────────────────────────
+scratch/
+local/
+todo.md
+TODO.md
+notes.md
+NOTES.md

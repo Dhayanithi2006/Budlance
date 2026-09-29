@@ -1,0 +1,40 @@
+{
+  "corridors": [
+    {
+      "origin": "Chennai",
+      "destination": "Bangalore",
+      "distance_km": 350,
+      "bus_type": "AC Sleeper / Multi-Axle",
+      "duration_hours": 6.5,
+      "fare_inr": 850,
+      "is_fallback": true
+    },
+    {
+      "origin": "Mumbai",
+      "destination": "Goa",
+      "distance_km": 590,
+      "bus_type": "Volvo AC Sleeper",
+      "duration_hours": 12.0,
+      "fare_inr": 1200,
+      "is_fallback": true
+    },
+    {
+      "origin": "Bangalore",
+      "destination": "Ooty",
+      "distance_km": 280,
+      "bus_type": "KSRTC Airavat AC",
+      "duration_hours": 7.0,
+      "fare_inr": 700,
+      "is_fallback": true
+    },
+    {
+      "origin": "Delhi",
+      "destination": "Manali",
+      "distance_km": 540,
+      "bus_type": "HPTDC Volvo AC",
+      "duration_hours": 13.5,
+      "fare_inr": 1400,
+      "is_fallback": true
+    }
+  ]
+}

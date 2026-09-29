@@ -1,0 +1,25 @@
+# docker-compose.yml — Budlance local development execution
+#
+# Justification: provides a single-command local start with env var injection
+# without requiring manual uvicorn invocation or local uv setup.
+#
+# Supabase PostgreSQL is an external managed service — it is NOT included here.
+# Redis, Celery, message queues, and additional services are NOT required.
+
+services:
+  budlance:
+    build: .
+    container_name: budlance_app
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - .env          # Mount the local .env file (never baked into image)
+    environment:
+      - APP_ENV=development
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
