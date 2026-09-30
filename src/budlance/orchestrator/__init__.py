@@ -5,6 +5,7 @@ from budlance.orchestrator.formatter import (
     format_feasible_plan,
     format_infeasible_plan,
     format_rescue_result,
+    split_telegram_message,
 )
 from budlance.orchestrator.models import OrchestrationResult
 from budlance.orchestrator.orchestrator import BudlanceOrchestrator
@@ -16,4 +17,5 @@ __all__ = [
     "format_infeasible_plan",
     "format_clarification",
     "format_rescue_result",
+    "split_telegram_message",
 ]

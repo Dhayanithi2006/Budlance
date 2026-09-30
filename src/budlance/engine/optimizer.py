@@ -37,7 +37,7 @@ class OptimizationEngine:
 
     def optimize(
         self,
-        trip_id: UUID,
+        trip_id: UUID | None,
         total_budget: Decimal,
         people: int,
         days: int,
@@ -282,11 +282,17 @@ class OptimizationEngine:
 
     def _record_attempt(
         self,
-        trip_id: UUID,
+        trip_id: UUID | None,
         attempt_number: int,
         downgrade_type: Any,
         evaluation: BudgetEvaluationResult,
     ) -> None:
+        # Skip persistence when trip_id is None (pre-persistence evaluation phase).
+        # At that stage no trips row exists yet, so inserting plan_attempts would
+        # violate the FK constraint. The orchestrator records attempts with a real
+        # trip_id only after the trip is persisted.
+        if trip_id is None:
+            return
         attempt_record = PlanAttempt(
             id=uuid4(),
             trip_id=trip_id,

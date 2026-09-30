@@ -70,6 +70,29 @@ class ParsedTripIntent(BaseModel):
         """True if core numerical constraints (budget, people, days) are available."""
         return len(self.missing_fields) == 0
 
+    def merge_with(self, update: "ParsedTripIntent") -> "ParsedTripIntent":
+        """Return a new ParsedTripIntent merging known values from this intent with an update.
+
+        Fields provided (non-None) in `update` overwrite the corresponding field here.
+        Fields absent (None) in `update` fall back to the existing value.
+        Interests are merged (union, preserving order).
+        """
+        merged_interests = list(self.interests)
+        for i in update.interests:
+            if i not in merged_interests:
+                merged_interests.append(i)
+
+        return ParsedTripIntent(
+            budget=update.budget if update.budget is not None else self.budget,
+            currency=update.currency if update.currency != "INR" or self.currency == "INR" else self.currency,
+            people=update.people if update.people is not None else self.people,
+            days=update.days if update.days is not None else self.days,
+            origin=update.origin if update.origin is not None else self.origin,
+            destination=update.destination if update.destination is not None else self.destination,
+            interests=merged_interests,
+            traveler_type=update.traveler_type if update.traveler_type is not None else self.traveler_type,
+        )
+
     def to_trip_intent_record(self, trip_id: UUID, raw_prompt: str | None = None) -> TripIntent:
         """Convert validated intent to a database TripIntent entity."""
         if not self.is_plannable:

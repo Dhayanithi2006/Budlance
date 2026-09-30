@@ -60,7 +60,11 @@ class CacheFallbackManager:
         # 1. Cache Check
         cached_entry = self.cache_repo.get_cached_search(query_hash)
         if cached_entry:
-            logger.info("Cache HIT for engine=%s (hash=%s)", engine, query_hash[:8])
+            logger.info(
+                "[CACHE] engine=%s resolution=CACHE_HIT hash=%s",
+                engine,
+                query_hash[:8],
+            )
             self.usage_repo.record_api_call(trip_id=trip_id, engine=engine, cached=True)
             return TravelDataEnvelope(
                 source=DataSource.CACHED,
@@ -79,6 +83,12 @@ class CacheFallbackManager:
             if engine in ("trains", "train_corridors"):
                 train_data = self.fallback.get_train_corridor(str(origin), str(destination))
                 if train_data:
+                    logger.info(
+                        "[CACHE] engine=%s resolution=FALLBACK_CORRIDOR corridor_type=train origin=%s destination=%s",
+                        engine,
+                        origin,
+                        destination,
+                    )
                     return TravelDataEnvelope(
                         source=DataSource.FALLBACK,
                         engine=engine,
@@ -90,6 +100,12 @@ class CacheFallbackManager:
             elif engine in ("buses", "bus_corridors"):
                 bus_data = self.fallback.get_bus_corridor(str(origin), str(destination))
                 if bus_data:
+                    logger.info(
+                        "[CACHE] engine=%s resolution=FALLBACK_CORRIDOR corridor_type=bus origin=%s destination=%s",
+                        engine,
+                        origin,
+                        destination,
+                    )
                     return TravelDataEnvelope(
                         source=DataSource.FALLBACK,
                         engine=engine,
@@ -107,6 +123,12 @@ class CacheFallbackManager:
                     or self.fallback.get_bus_corridor(str(origin), str(destination))
                 )
                 if fallback_res:
+                    logger.info(
+                        "[CACHE] engine=%s resolution=FALLBACK_CORRIDOR_NO_CREDS origin=%s destination=%s",
+                        engine,
+                        origin,
+                        destination,
+                    )
                     return TravelDataEnvelope(
                         source=DataSource.FALLBACK,
                         engine=engine,
@@ -117,7 +139,7 @@ class CacheFallbackManager:
                     )
             # No corridor data available — return empty envelope so callers use their own fallbacks
             logger.info(
-                "SerpApi not configured; returning empty envelope for engine=%s so caller fallback applies.",
+                "[CACHE] engine=%s resolution=UNCONFIGURED outcome=empty_envelope_returned",
                 engine,
             )
             return TravelDataEnvelope(
@@ -130,7 +152,11 @@ class CacheFallbackManager:
             )
 
         # 3. Live SerpApi Call
-        logger.info("Cache MISS for engine=%s (hash=%s). Calling live SerpApi...", engine, query_hash[:8])
+        logger.info(
+            "[CACHE] engine=%s resolution=LIVE_CALL hash=%s",
+            engine,
+            query_hash[:8],
+        )
         try:
             live_data = await self.gateway.execute_search(engine, params)
         except Exception as exc:
@@ -138,7 +164,11 @@ class CacheFallbackManager:
             if origin and destination:
                 fb = self.fallback.get_train_corridor(str(origin), str(destination))
                 if fb:
-                    logger.info("Falling back to static corridor after live call error: %s", exc)
+                    logger.info(
+                        "[CACHE] engine=%s resolution=FALLBACK_AFTER_LIVE_ERROR error=%s",
+                        engine,
+                        type(exc).__name__,
+                    )
                     return TravelDataEnvelope(
                         source=DataSource.FALLBACK,
                         engine=engine,
@@ -148,8 +178,7 @@ class CacheFallbackManager:
                         status="success",
                     )
             logger.warning(
-                "Live SerpApi call failed for engine=%s and no corridor fallback available (%s: %s). "
-                "Returning empty envelope so caller fallback applies.",
+                "[CACHE] engine=%s resolution=LIVE_CALL_FAILED outcome=empty_envelope error=%s: %s",
                 engine,
                 type(exc).__name__,
                 exc,

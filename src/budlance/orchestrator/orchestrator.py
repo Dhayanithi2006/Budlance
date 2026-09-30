@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 from budlance.ai.schemas import ParsedTripIntent
 from budlance.ai.service import AIIntentService
 from budlance.cache.manager import CacheFallbackManager
+from budlance.db.repositories.conversation_repo import ConversationStateRepository
 from budlance.db.repositories.intent_repo import IntentRepository
 from budlance.db.repositories.itinerary_repo import ItineraryRepository
 from budlance.db.repositories.ledger_repo import LedgerRepository
@@ -62,6 +63,7 @@ class BudlanceOrchestrator:
         itinerary_generator: ItineraryGenerator | None = None,
         ledger_manager: VirtualLedgerManager | None = None,
         rescue_service: RescueService | None = None,
+        conversation_repo: ConversationStateRepository | None = None,
     ) -> None:
         self.user_repo = user_repo or UserRepository()
         self.trip_repo = trip_repo or TripRepository()
@@ -69,6 +71,7 @@ class BudlanceOrchestrator:
         self.itinerary_repo = itinerary_repo or ItineraryRepository()
         self.ledger_repo = ledger_repo or LedgerRepository()
         self.rescue_repo = rescue_repo or RescueRepository()
+        self.conversation_repo = conversation_repo or ConversationStateRepository()
 
         self.ai_service = ai_service or AIIntentService()
         self.cache_manager = cache_manager or CacheFallbackManager()
@@ -135,10 +138,24 @@ class BudlanceOrchestrator:
                     error=rescue_res.error,
                 )
 
-            # 2. Planning Intent Extraction
-            parsed_intent = await self.ai_service.parse_trip_intent(clean_text)
+            # 2. Planning Intent Extraction — context-aware for multi-turn conversations
+            pending_intent = self.conversation_repo.get_pending_intent(chat_id)
 
-            # 3. Validate Required Planning Inputs (Task C)
+            if pending_intent is not None:
+                # We have a pending incomplete intent — merge the new message into it
+                logger.info(
+                    "[CONVERSATION] Found pending intent for chat_id=%s. Merging new message via context-aware parse.",
+                    chat_id,
+                )
+                parsed_intent = await self.ai_service.parse_trip_intent_with_context(
+                    user_prompt=clean_text,
+                    existing_intent=pending_intent,
+                )
+            else:
+                # Fresh message — extract intent from scratch
+                parsed_intent = await self.ai_service.parse_trip_intent(clean_text)
+
+            # 3. Validate Required Planning Inputs
             missing_fields = []
             if parsed_intent.budget is None or parsed_intent.budget <= Decimal("0.00"):
                 missing_fields.append("budget")
@@ -150,10 +167,16 @@ class BudlanceOrchestrator:
                 missing_fields.append("origin")
 
             if missing_fields:
-                logger.info("Trip intent missing required fields: %s. Returning clarification.", missing_fields)
+                logger.info(
+                    "[CONVERSATION] Trip intent missing %s for chat_id=%s. Saving pending intent.",
+                    missing_fields,
+                    chat_id,
+                )
+                # Persist the partial intent so the next message can merge into it
+                self.conversation_repo.save_pending_intent(chat_id, parsed_intent)
                 return OrchestrationResult(
                     status="CLARIFICATION",
-                    message_text=format_clarification(missing_fields),
+                    message_text=format_clarification(missing_fields, known_context=parsed_intent),
                 )
 
             # 4. User Resolution
@@ -169,11 +192,12 @@ class BudlanceOrchestrator:
             people = parsed_intent.people or 1
             days = parsed_intent.days or 1
 
+            used_fallback_catalog = False
             if parsed_intent.destination and parsed_intent.destination.strip():
                 candidate_destinations = [parsed_intent.destination.strip().title()]
             else:
                 logger.info("Destination absent. Engaging Destination Discovery via Travel Explore...")
-                candidate_destinations = await self._discover_destinations(
+                candidate_destinations, used_fallback_catalog = await self._discover_destinations(
                     origin=origin,
                     budget=budget,
                     interests=parsed_intent.interests,
@@ -282,7 +306,12 @@ class BudlanceOrchestrator:
             )
 
             # e. Format presentation message for Telegram
-            downgrades = opt_result.downgrades_applied if opt_result else []
+            downgrades = list(opt_result.downgrades_applied) if opt_result else []
+            if used_fallback_catalog and parsed_intent.interests:
+                downgrades.append(
+                    f"Requested interest ({', '.join(parsed_intent.interests)}) could not be matched in offline catalog; "
+                    f"selected {chosen_dest} from regional budget corridors."
+                )
             msg_text = format_feasible_plan(
                 destination=chosen_dest,
                 days=final_days,
@@ -294,6 +323,9 @@ class BudlanceOrchestrator:
                 ledger=ledger_summary,
                 downgrades=downgrades,
             )
+
+            # Clear the pending intent now that planning is complete
+            self.conversation_repo.clear_pending_intent(chat_id)
 
             return OrchestrationResult(
                 trip_id=trip.id,
@@ -328,8 +360,11 @@ class BudlanceOrchestrator:
         origin: str,
         budget: Decimal,
         interests: list[str],
-    ) -> list[str]:
-        """Discover candidate destinations using Google Travel Explore through Cache/Fallback."""
+    ) -> tuple[list[str], bool]:
+        """Discover candidate destinations using Google Travel Explore through Cache/Fallback.
+
+        Returns tuple of (candidate_destinations, used_fallback_catalog).
+        """
         envelope = await self.cache_manager.get_travel_data(
             engine="google_travel_explore",
             params={
@@ -347,12 +382,14 @@ class BudlanceOrchestrator:
                 if name and str(name).lower() != origin.lower():
                     discovered.append(str(name).title())
 
+        used_fallback = False
         if not discovered:
             # Deterministic regional catalog matching budget corridors
             catalog = ["Goa", "Jaipur", "Udaipur", "Kerala", "Ooty", "Coorg", "Manali"]
             discovered = [c for c in catalog if c.lower() != origin.lower()]
+            used_fallback = True
 
-        return discovered
+        return discovered, used_fallback
 
     async def _evaluate_trip_candidate(
         self,
@@ -413,7 +450,7 @@ class BudlanceOrchestrator:
         # 4. If Over-Budget: Engage 4-Step OptimizationEngine (Task B)
         logger.info("Destination %s is initially NOT_FEASIBLE. Engaging 4-step Optimizer...", destination)
         opt_result = self.optimizer.optimize(
-            trip_id=uuid4(),
+            trip_id=None,
             total_budget=budget,
             people=people,
             days=days,

@@ -40,11 +40,9 @@ def format_feasible_plan(
     lines.append("🧳 *Selected Bookings:*")
     if transport:
         trans_name = getattr(transport, "airline", None) or getattr(transport, "name_or_operator", "Transport")
-        source_val = transport.source.value.upper() if hasattr(transport.source, "value") else str(transport.source).upper()
-        lines.append(f"• Transport: {trans_name} — {breakdown.currency} {transport.price:,.2f} `[{source_val}]`")
+        lines.append(f"• Transport: {trans_name} — {breakdown.currency} {transport.price:,.2f}")
     if hotel:
-        hotel_source = hotel.source.value.upper() if hasattr(hotel.source, "value") else str(hotel.source).upper()
-        lines.append(f"• Accommodation: {hotel.name} — {breakdown.currency} {hotel.total_price:,.2f} `[{hotel_source}]`")
+        lines.append(f"• Accommodation: {hotel.name} — {breakdown.currency} {hotel.total_price:,.2f}")
 
     # Optimization notes if downgraded
     if downgrades:
@@ -60,8 +58,7 @@ def format_feasible_plan(
         for day in itinerary.days:
             lines.append(f"*Day {day.day_number}:* {day.theme_or_summary} (Est. {breakdown.currency} {day.daily_estimated_cost:,.2f})")
             for item in day.items:
-                prov = f"`[{item.source.value.upper()}]`" if hasattr(item.source, "value") else f"`[{item.source}]`"
-                lines.append(f"  • {item.time_slot}: {item.activity} {prov}")
+                lines.append(f"  • {item.time_slot}: {item.activity}")
 
     lines.append("")
     lines.append("✨ *In-Trip Rescue Active:* If it rains, an attraction is closed, or a driver asks for a high fare, message me here for instant replanning!")
@@ -95,18 +92,75 @@ def format_infeasible_plan(
     return "\n".join(lines)
 
 
-def format_clarification(missing_fields: list[str]) -> str:
-    """Format a helpful clarification request for missing inputs."""
+def format_clarification(
+    missing_fields: list[str],
+    known_context: "ParsedTripIntent | None" = None,
+) -> str:
+    """Format a helpful clarification request for missing inputs.
+
+    When `known_context` is provided and has at least one known field, builds a
+    conversational summary of what we already know before asking for what's missing.
+    """
+    from budlance.ai.schemas import ParsedTripIntent  # local import to avoid circular
+
+    field_questions = {
+        "budget": "What's your total trip budget?",
+        "people": "How many travelers will be joining?",
+        "days": "How many days would you like to stay?",
+        "origin": "Which city will you be departing from?",
+    }
+
+    # Build a summary of what we already know
+    summary_parts: list[str] = []
+    if known_context:
+        if known_context.origin and known_context.destination:
+            summary_parts.append(f"{known_context.origin} → {known_context.destination}")
+        elif known_context.origin:
+            summary_parts.append(f"from {known_context.origin}")
+        elif known_context.destination:
+            summary_parts.append(f"to {known_context.destination}")
+
+        if known_context.people is not None:
+            p = known_context.people
+            summary_parts.append(f"{p} {'traveler' if p == 1 else 'travelers'}")
+
+        if known_context.budget is not None:
+            summary_parts.append(f"₹{int(known_context.budget):,}")
+
+        if known_context.days is not None:
+            summary_parts.append(f"{known_context.days} days")
+
+        if known_context.interests:
+            summary_parts.append(f"interests: {', '.join(known_context.interests)}")
+
+    if summary_parts and len(missing_fields) == 1:
+        # Friendly single-question follow-up
+        summary = ", ".join(summary_parts)
+        question = field_questions.get(missing_fields[0], f"What is your {missing_fields[0]}?")
+        return f"Got it — {summary}. {question}"
+
+    if summary_parts and len(missing_fields) > 1:
+        # Friendly multi-question follow-up with bullet list (only missing fields)
+        summary = ", ".join(summary_parts)
+        lines = [
+            f"Got it — {summary}! I need a few more details:",
+            "",
+        ]
+        for f in missing_fields:
+            lines.append(f"• {field_questions.get(f, f.title())}")
+        return "\n".join(lines)
+
+    # No context yet — fall back to a gentle introductory prompt
+    lines = [
+        "🤔 *I need a few more details to plan your trip within budget:*",
+        "",
+    ]
     field_labels = {
         "budget": "Total budget (e.g. ₹20,000)",
         "people": "Number of travelers (e.g. 2 people or solo)",
         "days": "Duration in days (e.g. 3 days)",
         "origin": "Departure city (e.g. from Mumbai)",
     }
-    lines = [
-        "🤔 *I need a few more details to plan your trip within budget:*",
-        "",
-    ]
     for f in missing_fields:
         label = field_labels.get(f, f.title())
         lines.append(f"• {label}")
@@ -128,13 +182,22 @@ def format_rescue_result(rescue_res: RescueResult) -> str:
     if rescue_res.rescue_type == "weather_closure":
         if rescue_res.success:
             alt_name = rescue_res.selected_alternative.name if rescue_res.selected_alternative else "alternative attraction"
-            alt_prov = rescue_res.selected_alternative.source.value.upper() if (rescue_res.selected_alternative and hasattr(rescue_res.selected_alternative.source, "value")) else "CACHED"
             return (
                 f"🌦️ *Rescue Mode: Alternative Found!*\n\n"
                 f"Due to: _{rescue_res.user_issue}_\n"
-                f"✅ Selected Alternative: *{alt_name}* `[{alt_prov}]`\n"
+                f"✅ Selected Alternative: *{alt_name}*\n"
                 f"💰 Budget Impact: +₹{rescue_res.budget_impact:,.2f} (Covered by Rescue Reserve)\n\n"
                 f"📝 *Updated Itinerary Saved:* The affected activity has been replaced and your ledger remains balanced."
+            )
+        if rescue_res.error == "NO_ALTERNATIVES_FOUND":
+            return (
+                f"🌧️ *In-Trip Rescue: No Indoor Alternatives Discovered*\n\n"
+                f"Due to: _{rescue_res.user_issue}_\n"
+                f"{rescue_res.resolution_summary}\n\n"
+                f"💡 *Actionable Next Steps:*\n"
+                f"• If you choose an indoor venue nearby (café, museum, local mall), your Rescue Reserve is available to cover expenses.\n"
+                f"• To check fair travel costs to shelter, send your fare quote (e.g. `Auto driver asking ₹200`).\n\n"
+                f"📝 Your current itinerary and budget allocations remain untouched."
             )
         return (
             f"⚠️ *Rescue Replanning Infeasible*\n\n"
@@ -147,8 +210,8 @@ def format_rescue_result(rescue_res: RescueResult) -> str:
         if fg:
             return (
                 f"🚕 *Advisory Transit Fare Guidance:*\n\n"
-                f"• Quoted Price: ₹{fg.reported_price:,.2f} `[USER_REPORTED]`\n"
-                f"• Estimated Fair Fare: ₹{fg.estimated_fare:,.2f} `[ESTIMATED]` (₹{fg.rate_per_km}/km for ~{fg.distance_km} km)\n"
+                f"• Quoted Price: ₹{fg.reported_price:,.2f}\n"
+                f"• Estimated Fair Fare: ₹{fg.estimated_fare:,.2f} (~₹{fg.rate_per_km}/km for ~{fg.distance_km} km)\n"
                 f"• Status: *{fg.status.replace('_', ' ').upper()}*\n\n"
                 f"ℹ️ {fg.advisory_notes}\n\n"
                 f"📝 Recorded reported expenditure in your Virtual Ledger."
@@ -159,3 +222,51 @@ def format_rescue_result(rescue_res: RescueResult) -> str:
         f"ℹ️ *Budlance Rescue Assistant*\n\n"
         f"{rescue_res.resolution_summary}"
     )
+
+
+def split_telegram_message(text: str, max_length: int = 4096) -> list[str]:
+    """Split formatted message into complete chunks respecting Telegram message length limits.
+    
+    Splits along line boundaries to ensure words and markers are not cut unexpectedly.
+    """
+    if len(text) <= max_length:
+        return [text]
+
+    chunks: list[str] = []
+    current_chunk: list[str] = []
+    current_length = 0
+
+    for line in text.split("\n"):
+        line_len = len(line) + 1  # count newline
+        if current_length + line_len > max_length:
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+                current_length = 0
+            if len(line) > max_length:
+                # If a single line exceeds max_length, split on whitespace boundaries
+                words = line.split(" ")
+                sub_chunk: list[str] = []
+                sub_len = 0
+                for w in words:
+                    if sub_len + len(w) + 1 > max_length:
+                        if sub_chunk:
+                            chunks.append(" ".join(sub_chunk))
+                            sub_chunk = []
+                            sub_len = 0
+                    sub_chunk.append(w)
+                    sub_len += len(w) + 1
+                if sub_chunk:
+                    current_chunk.append(" ".join(sub_chunk))
+                    current_length = len(" ".join(sub_chunk))
+            else:
+                current_chunk.append(line)
+                current_length = len(line)
+        else:
+            current_chunk.append(line)
+            current_length += line_len
+
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+
+    return chunks

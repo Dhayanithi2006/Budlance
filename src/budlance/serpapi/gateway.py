@@ -49,14 +49,29 @@ class SerpApiGateway:
                 "SerpApi API key is not configured. Set SERPAPI_API_KEY in .env."
             )
 
-        # Merge engine and API key into request payload
+        # Instrumentation: log call attempt boundary (no secrets, no user data)
+        logger.info(
+            "[SERPAPI] provider=serpapi operation=%s outcome=attempting call_type=live",
+            engine,
+        )
+
+        # Merge engine and API key into request payload (key excluded from logs)
         request_params = {
             "api_key": self._api_key.strip(),
             "engine": engine,
             **params,
         }
 
+        attempt_counter = {"count": 0}
+
         async def _single_call() -> dict[str, Any]:
+            attempt_counter["count"] += 1
+            logger.info(
+                "[SERPAPI] provider=serpapi operation=%s attempt=%d max_retries=%d",
+                engine,
+                attempt_counter["count"],
+                max_retries,
+            )
             await self.rate_limiter.acquire()
             should_close = False
             client = self._http_client
@@ -67,8 +82,18 @@ class SerpApiGateway:
             try:
                 response = await client.get(SERPAPI_BASE_URL, params=request_params)
             except httpx.TimeoutException as exc:
+                logger.warning(
+                    "[SERPAPI] provider=serpapi operation=%s outcome=timeout attempt=%d",
+                    engine,
+                    attempt_counter["count"],
+                )
                 raise SerpApiNetworkError(f"SerpApi call timed out: {exc}") from exc
             except httpx.RequestError as exc:
+                logger.warning(
+                    "[SERPAPI] provider=serpapi operation=%s outcome=network_error attempt=%d",
+                    engine,
+                    attempt_counter["count"],
+                )
                 raise SerpApiNetworkError(f"SerpApi network request error: {exc}") from exc
             finally:
                 self.rate_limiter.release()
@@ -76,10 +101,24 @@ class SerpApiGateway:
                     await client.aclose()
 
             if response.status_code in (401, 403):
+                logger.warning(
+                    "[SERPAPI] provider=serpapi operation=%s outcome=auth_failure http_status=%d",
+                    engine,
+                    response.status_code,
+                )
                 raise SerpApiAuthError("SerpApi authentication failed. Check your API key.")
             if response.status_code == 429:
+                logger.warning(
+                    "[SERPAPI] provider=serpapi operation=%s outcome=rate_limited",
+                    engine,
+                )
                 raise SerpApiRateLimitError("SerpApi rate limit or monthly search quota exceeded.")
             if response.status_code != 200:
+                logger.warning(
+                    "[SERPAPI] provider=serpapi operation=%s outcome=http_error http_status=%d",
+                    engine,
+                    response.status_code,
+                )
                 raise SerpApiResponseError(
                     f"SerpApi error HTTP {response.status_code}: {response.text[:200]}"
                 )
@@ -88,12 +127,22 @@ class SerpApiGateway:
             if "error" in data:
                 err_msg = str(data["error"])
                 if "Invalid API key" in err_msg:
+                    logger.warning(
+                        "[SERPAPI] provider=serpapi operation=%s outcome=invalid_key",
+                        engine,
+                    )
                     raise SerpApiAuthError("SerpApi reports: Invalid API key")
                 raise SerpApiResponseError(f"SerpApi API error: {err_msg}")
 
+            logger.info(
+                "[SERPAPI] provider=serpapi operation=%s outcome=success attempts_used=%d",
+                engine,
+                attempt_counter["count"],
+            )
             return data
 
-        return await retry_with_backoff(_single_call, max_retries=max_retries)
+        result = await retry_with_backoff(_single_call, max_retries=max_retries)
+        return result
 
     # =========================================================================
     # Verified Engine Methods

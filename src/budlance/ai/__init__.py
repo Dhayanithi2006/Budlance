@@ -1,6 +1,6 @@
 """AI Intent Layer package for Budlance powered by OpenRouter."""
 
-from budlance.ai.client import OpenRouterClient
+from budlance.ai.client import GeminiClient, OpenRouterClient
 from budlance.ai.exceptions import (
     AIIntentError,
     OpenRouterAuthError,
@@ -13,6 +13,7 @@ from budlance.ai.service import AIIntentService
 
 __all__ = [
     "OpenRouterClient",
+    "GeminiClient",
     "AIIntentService",
     "ParsedTripIntent",
     "ParsedRescueIntent",

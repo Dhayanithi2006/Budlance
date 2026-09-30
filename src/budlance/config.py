@@ -19,11 +19,13 @@ class Settings(BaseSettings):
     # Telegram Bot
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
 
-    # AI Gateway (OpenRouter)
+    # AI Gateway (OpenRouter or Google Gemini)
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
     openrouter_model: str = Field(
         default="anthropic/claude-3.5-sonnet", alias="OPENROUTER_MODEL"
     )
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-flash-latest", alias="GEMINI_MODEL")
 
     # Live Travel Search (SerpApi)
     serpapi_api_key: str = Field(default="", alias="SERPAPI_API_KEY")
@@ -48,6 +50,16 @@ class Settings(BaseSettings):
     def has_openrouter_credentials(self) -> bool:
         """Check if OpenRouter API credentials are configured."""
         return bool(self.openrouter_api_key and self.openrouter_api_key.strip())
+
+    @property
+    def has_gemini_credentials(self) -> bool:
+        """Check if Gemini API credentials are configured."""
+        return bool(self.gemini_api_key and self.gemini_api_key.strip())
+
+    @property
+    def has_ai_credentials(self) -> bool:
+        """Check if any AI gateway credentials (OpenRouter or Gemini) are configured."""
+        return self.has_openrouter_credentials or self.has_gemini_credentials
 
     @property
     def has_serpapi_credentials(self) -> bool:
@@ -75,8 +87,11 @@ class Settings(BaseSettings):
             "port": self.port,
             "webhook_url": self.webhook_url or None,
             "openrouter_model": self.openrouter_model,
+            "gemini_model": self.gemini_model,
             "has_telegram_token": self.has_telegram_token,
             "has_openrouter_credentials": self.has_openrouter_credentials,
+            "has_gemini_credentials": self.has_gemini_credentials,
+            "has_ai_credentials": self.has_ai_credentials,
             "has_serpapi_credentials": self.has_serpapi_credentials,
             "has_supabase_credentials": self.has_supabase_credentials,
         }
@@ -90,6 +105,7 @@ class Settings(BaseSettings):
             f"port={self.port}, "
             f"has_telegram={self.has_telegram_token}, "
             f"has_openrouter={self.has_openrouter_credentials}, "
+            f"has_gemini={self.has_gemini_credentials}, "
             f"has_serpapi={self.has_serpapi_credentials}, "
             f"has_supabase={self.has_supabase_credentials})"
         )

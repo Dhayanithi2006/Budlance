@@ -8,6 +8,7 @@ Architectural Boundary:
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
+from budlance.orchestrator.formatter import split_telegram_message
 from budlance.orchestrator.orchestrator import BudlanceOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -67,11 +68,13 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         first_name=first_name,
     )
 
-    try:
-        await update.effective_message.reply_text(result.message_text, parse_mode="Markdown")
-    except Exception as exc:
-        logger.warning("Markdown formatting rejected by Telegram (%s). Falling back to plain text.", exc)
-        await update.effective_message.reply_text(result.message_text)
+    chunks = split_telegram_message(result.message_text)
+    for chunk in chunks:
+        try:
+            await update.effective_message.reply_text(chunk, parse_mode="Markdown")
+        except Exception as exc:
+            logger.warning("Markdown formatting rejected by Telegram (%s). Falling back to plain text.", exc)
+            await update.effective_message.reply_text(chunk)
 
     logger.info(
         "Dispatched message for chat_id=%s to Orchestrator -> Status: %s",

@@ -220,3 +220,188 @@ async def test_service_validation_error_on_bad_schema():
     service = AIIntentService(client=mock_client, use_mock=False)
     with pytest.raises(OpenRouterValidationError):
         await service.parse_trip_intent("Visit Kerala")
+
+
+@pytest.mark.asyncio
+async def test_gemini_client_missing_credentials():
+    """Verify GeminiClient raises OpenRouterAuthError when credentials are missing."""
+    from budlance.ai.client import GeminiClient
+
+    client = GeminiClient(api_key="")
+    assert client.has_credentials is False
+    with pytest.raises(OpenRouterAuthError):
+        await client.chat_completion([{"role": "user", "content": "hello"}])
+
+
+@pytest.mark.asyncio
+async def test_gemini_client_mock_completion():
+    """Verify GeminiClient parses valid candidate JSON."""
+    from budlance.ai.client import GeminiClient
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [{"text": '{"budget": 15000, "days": 3, "destination": "Goa"}'}]
+                }
+            }
+        ]
+    }
+    mock_http = MagicMock(spec=httpx.AsyncClient)
+    mock_http.post = AsyncMock(return_value=mock_resp)
+
+    client = GeminiClient(api_key="fake_key", http_client=mock_http)
+    assert client.has_credentials is True
+    res = await client.chat_completion([{"role": "user", "content": "test"}])
+    assert res["destination"] == "Goa"
+    assert res["budget"] == 15000
+
+
+def test_ai_intent_service_selects_openrouter():
+    """Verify AIIntentService selects OpenRouterClient when OpenRouter credentials exist (Gemini disabled)."""
+    from budlance.ai.client import OpenRouterClient
+
+    service = AIIntentService()
+    assert isinstance(service.client, OpenRouterClient)
+    assert service.use_mock is False
+    assert service.client.model == "google/gemma-4-26b-a4b-it:free"
+
+
+# ============================================================================
+# 8. Tanglish + Mock Fallback Regression Tests (Task 10)
+# ============================================================================
+
+def test_mock_exact_tanglish_extraction():
+    """Exact Tanglish sentence must parse all 4 required fields correctly."""
+    service = AIIntentService(use_mock=True)
+    result = service._mock_parse_trip_intent(
+        "Enakku 15000 budget irukku, 2 peru, 3 days Chennai la irundhu hill station poganum."
+    )
+    assert result.budget == pytest.approx(15000, rel=1e-3)
+    assert result.people == 2
+    assert result.days == 3
+    assert result.origin == "Chennai"
+    assert result.destination is None
+    assert "hill station" in result.interests
+
+
+def test_mock_tanglish_variation_20k_bangalore():
+    """Tanglish with 20k shorthand, 3 peru, Bangalore origin, hill station interest."""
+    service = AIIntentService(use_mock=True)
+    result = service._mock_parse_trip_intent(
+        "Enakku 20k budget, 4 days, 3 peru, Bangalore la irundhu hill station poganum."
+    )
+    assert result.budget == pytest.approx(20000, rel=1e-3)
+    assert result.people == 3
+    assert result.days == 4
+    assert result.origin == "Bangalore"
+    assert result.destination is None
+    assert "hill station" in result.interests
+
+
+def test_mock_tanglish_beach_trip():
+    """Tanglish beach variation: '2 peru' + 'Chennai la irundhu' + beach interest."""
+    service = AIIntentService(use_mock=True)
+    result = service._mock_parse_trip_intent(
+        "Naan 15000 budget la 2 peru 3 days Chennai la irundhu beach trip poganum."
+    )
+    assert result.people == 2
+    assert result.origin == "Chennai"
+    assert result.destination is None
+    assert "beach" in result.interests
+
+
+def test_mock_origin_not_misclassified_as_destination():
+    """Origin city must NEVER appear as destination in the heuristic parser."""
+    service = AIIntentService(use_mock=True)
+    for prompt in [
+        "Enakku 15000 budget irukku, 2 peru, 3 days Chennai la irundhu hill station poganum.",
+        "Plan a trip from Chennai for 2 people, 3 days, with a budget of 15000.",
+        "2 peru, 3 days, Chennai la irundhu trip venum, budget 18000.",
+    ]:
+        result = service._mock_parse_trip_intent(prompt)
+        assert result.origin == "Chennai", f"Expected origin=Chennai for: {prompt!r}"
+        assert result.destination != "Chennai", f"Chennai must not be destination for: {prompt!r}"
+
+
+def test_mock_hill_station_interest_extracted():
+    """'hill station' must appear in interests when mentioned in any form."""
+    service = AIIntentService(use_mock=True)
+    result = service._mock_parse_trip_intent(
+        "15000 budget, 2 peru, 3 days Chennai la irundhu hill station poganum."
+    )
+    assert "hill station" in result.interests
+
+
+def test_mock_english_origin_extraction():
+    """Standard English 'from <city>' pattern must set origin, not destination."""
+    service = AIIntentService(use_mock=True)
+    result = service._mock_parse_trip_intent(
+        "Plan a trip from Chennai for 2 people, 3 days, with a budget of ₹15,000."
+    )
+    assert result.budget == pytest.approx(15000, rel=1e-3)
+    assert result.people == 2
+    assert result.days == 3
+    assert result.origin == "Chennai"
+    assert result.destination != "Chennai"
+
+
+@pytest.mark.asyncio
+async def test_openrouter_success_returns_valid_intent():
+    """OpenRouter mock success → produces correct TripIntent without falling back."""
+    mock_client = MagicMock(spec=OpenRouterClient)
+    mock_client.has_credentials = True
+    mock_client.chat_completion = AsyncMock(return_value={
+        "budget": 15000,
+        "currency": "INR",
+        "people": 2,
+        "days": 3,
+        "origin": "Chennai",
+        "destination": None,
+        "interests": ["hill station"],
+        "traveler_type": None,
+    })
+    service = AIIntentService(client=mock_client, use_mock=False)
+    result = await service.parse_trip_intent("Enakku 15000 budget irukku, 2 peru, 3 days Chennai la irundhu hill station poganum.")
+    assert result.people == 2
+    assert result.origin == "Chennai"
+    assert result.destination is None
+    assert "hill station" in result.interests
+    assert result.is_plannable is True
+
+
+@pytest.mark.asyncio
+async def test_openrouter_failure_logs_and_falls_back_to_mock():
+    """OpenRouter network failure must fall back to heuristic gracefully (no exception to caller)."""
+    from budlance.ai.exceptions import OpenRouterResponseError
+
+    mock_client = MagicMock(spec=OpenRouterClient)
+    mock_client.has_credentials = True
+    mock_client.chat_completion = AsyncMock(
+        side_effect=OpenRouterResponseError("HTTP 429: rate limited")
+    )
+    service = AIIntentService(client=mock_client, use_mock=False)
+
+    # Fallback should be transparent — no exception raised to the caller
+    result = await service.parse_trip_intent(
+        "Enakku 15000 budget irukku, 2 peru, 3 days Chennai la irundhu hill station poganum."
+    )
+    # Heuristic extracts budget=15000, people=2, days=3, origin=Chennai
+    assert result.budget is not None
+    assert result.people == 2
+    assert result.origin == "Chennai"
+
+
+@pytest.mark.asyncio
+async def test_invalid_openrouter_json_does_not_produce_silent_fabricated_intent():
+    """Invalid model JSON must raise OpenRouterValidationError, not produce a fabricated intent silently."""
+    mock_client = MagicMock(spec=OpenRouterClient)
+    mock_client.has_credentials = True
+    # Return data that fails Pydantic validation (budget is a list, which is invalid)
+    mock_client.chat_completion = AsyncMock(return_value={"budget": [1, 2, 3]})
+
+    service = AIIntentService(client=mock_client, use_mock=False)
+    with pytest.raises(OpenRouterValidationError):
+        await service.parse_trip_intent("test")
