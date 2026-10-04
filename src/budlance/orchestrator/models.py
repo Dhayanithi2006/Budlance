@@ -31,6 +31,9 @@ class OrchestrationResult(BaseModel):
     generated_itinerary: GeneratedItinerary | None = None
     ledger_summary: LedgerSummary | None = None
     provenance: dict[str, str] = Field(default_factory=dict)
+    is_pass_unlocked: bool = True
+    pass_status: str | None = None
+    checkout_url: str | None = None
     message_text: str = Field(
         default="",
         description="Formatted, user-readable response text ready for Telegram delivery.",

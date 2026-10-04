@@ -758,7 +758,19 @@ async def test_feasible_plan_reaches_orchestration_result():
 
     # Mock cache manager: return empty envelopes so orchestrator uses deterministic fallbacks
     mock_cache = MagicMock()
+    from budlance.cache.fallback import FallbackDataProvider
+    fallback_provider = FallbackDataProvider()
     async def _empty_envelope(engine, params, trip_id=None, **kwargs):
+        if engine in ("trains", "train_corridors"):
+            t_data = fallback_provider.get_train_corridor(params.get("origin", ""), params.get("destination", ""))
+            return TravelDataEnvelope(
+                source=DataSource.FALLBACK,
+                engine=engine,
+                query_hash="train_hash",
+                data=t_data or {},
+                is_fallback=True,
+                status="success",
+            )
         return TravelDataEnvelope(
             source=DataSource.FALLBACK,
             engine=engine,

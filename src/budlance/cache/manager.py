@@ -75,45 +75,72 @@ class CacheFallbackManager:
                 status="success",
             )
 
-        # 2. Fallback Check (for corridor transit or when explicitly requested / offline)
+        # 2. Transit Fallback (trains and buses are offline catalogs only, never sent to SerpApi)
         origin = params.get("origin") or params.get("from")
         destination = params.get("destination") or params.get("to")
 
-        if origin and destination:
-            if engine in ("trains", "train_corridors"):
-                train_data = self.fallback.get_train_corridor(str(origin), str(destination))
-                if train_data:
-                    logger.info(
-                        "[CACHE] engine=%s resolution=FALLBACK_CORRIDOR corridor_type=train origin=%s destination=%s",
-                        engine,
-                        origin,
-                        destination,
-                    )
-                    return TravelDataEnvelope(
-                        source=DataSource.FALLBACK,
-                        engine=engine,
-                        query_hash=query_hash,
-                        data=train_data,
-                        is_fallback=True,
-                        status="success",
-                    )
-            elif engine in ("buses", "bus_corridors"):
-                bus_data = self.fallback.get_bus_corridor(str(origin), str(destination))
-                if bus_data:
-                    logger.info(
-                        "[CACHE] engine=%s resolution=FALLBACK_CORRIDOR corridor_type=bus origin=%s destination=%s",
-                        engine,
-                        origin,
-                        destination,
-                    )
-                    return TravelDataEnvelope(
-                        source=DataSource.FALLBACK,
-                        engine=engine,
-                        query_hash=query_hash,
-                        data=bus_data,
-                        is_fallback=True,
-                        status="success",
-                    )
+        if engine in ("trains", "train_corridors"):
+            train_data = self.fallback.get_train_corridor(str(origin), str(destination)) if origin and destination else None
+            if train_data:
+                logger.info(
+                    "[CACHE] engine=%s resolution=FALLBACK_CORRIDOR corridor_type=train origin=%s destination=%s",
+                    engine,
+                    origin,
+                    destination,
+                )
+                return TravelDataEnvelope(
+                    source=DataSource.FALLBACK,
+                    engine=engine,
+                    query_hash=query_hash,
+                    data=train_data,
+                    is_fallback=True,
+                    status="success",
+                )
+            logger.info(
+                "[CACHE] engine=%s resolution=NO_CORRIDOR_DATA origin=%s destination=%s outcome=empty_envelope_returned",
+                engine,
+                origin,
+                destination,
+            )
+            return TravelDataEnvelope(
+                source=DataSource.FALLBACK,
+                engine=engine,
+                query_hash=query_hash,
+                data={},
+                is_fallback=True,
+                status="empty",
+            )
+        elif engine in ("buses", "bus_corridors"):
+            bus_data = self.fallback.get_bus_corridor(str(origin), str(destination)) if origin and destination else None
+            if bus_data:
+                logger.info(
+                    "[CACHE] engine=%s resolution=FALLBACK_CORRIDOR corridor_type=bus origin=%s destination=%s",
+                    engine,
+                    origin,
+                    destination,
+                )
+                return TravelDataEnvelope(
+                    source=DataSource.FALLBACK,
+                    engine=engine,
+                    query_hash=query_hash,
+                    data=bus_data,
+                    is_fallback=True,
+                    status="success",
+                )
+            logger.info(
+                "[CACHE] engine=%s resolution=NO_CORRIDOR_DATA origin=%s destination=%s outcome=empty_envelope_returned",
+                engine,
+                origin,
+                destination,
+            )
+            return TravelDataEnvelope(
+                source=DataSource.FALLBACK,
+                engine=engine,
+                query_hash=query_hash,
+                data={},
+                is_fallback=True,
+                status="empty",
+            )
 
         # If gateway does not have live credentials, try corridor fallback or return empty envelope
         if not self.gateway.has_credentials:
@@ -160,8 +187,10 @@ class CacheFallbackManager:
         try:
             live_data = await self.gateway.execute_search(engine, params)
         except Exception as exc:
-            # If live call fails, try corridor fallback; otherwise return empty envelope for caller fallbacks
-            if origin and destination:
+            # Cross-pollination guard: only use transit corridor fallback for transit engines.
+            # A failed google_flights call must NEVER return train corridor data.
+            _is_transit_engine = engine in ("trains", "train_corridors", "buses", "bus_corridors")
+            if _is_transit_engine and origin and destination:
                 fb = self.fallback.get_train_corridor(str(origin), str(destination))
                 if fb:
                     logger.info(
@@ -177,6 +206,8 @@ class CacheFallbackManager:
                         is_fallback=True,
                         status="success",
                     )
+            # For non-transit engines (flights, hotels, maps) or when no corridor exists:
+            # return an empty envelope — the caller's own fallback will handle it.
             logger.warning(
                 "[CACHE] engine=%s resolution=LIVE_CALL_FAILED outcome=empty_envelope error=%s: %s",
                 engine,
@@ -215,4 +246,16 @@ class CacheFallbackManager:
             data=live_data,
             is_fallback=False,
             status="success",
+        )
+
+    async def get_flight_booking_options(
+        self,
+        booking_token: str,
+        trip_id: UUID | None = None,
+    ) -> TravelDataEnvelope:
+        """Resolve flight booking options for a given booking_token via Cache or Live SerpApi."""
+        return await self.get_travel_data(
+            engine="google_flights",
+            params={"booking_token": booking_token},
+            trip_id=trip_id,
         )

@@ -15,6 +15,9 @@ def isolate_unit_test_environment(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "")
     monkeypatch.setenv("SUPABASE_KEY", "")
     monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("SERPAPI_LIVE_ENABLED", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
     get_settings.cache_clear()
     get_supabase_client.cache_clear()
     yield

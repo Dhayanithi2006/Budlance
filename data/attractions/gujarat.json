@@ -1,0 +1,101 @@
+[
+  {
+    "name": "Sabarmati Ashram",
+    "category": "culture",
+    "suitable_for": ["solo", "couple", "family", "relatives", "friends"],
+    "typical_time_hours": 2.0,
+    "opening_hours": "08:30-18:30",
+    "entry_fee_inr": 0,
+    "description": "Mahatma Gandhi's historic headquarters on the banks of the Sabarmati River, preserving his living quarters and independence movement archives.",
+    "location": "Ahmedabad",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Adalaj Stepwell",
+    "category": "architecture",
+    "suitable_for": ["solo", "couple", "friends", "family", "relatives"],
+    "typical_time_hours": 1.5,
+    "opening_hours": "06:00-18:00",
+    "entry_fee_inr": 0,
+    "description": "Intricately carved 15th-century five-story Solanki-style stepwell with subterranean pavilions and ornate pillars.",
+    "location": "Gandhinagar",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Sidi Saiyyed Mosque",
+    "category": "heritage",
+    "suitable_for": ["solo", "couple", "family", "relatives", "friends"],
+    "typical_time_hours": 1.0,
+    "opening_hours": "07:00-18:00",
+    "entry_fee_inr": 0,
+    "description": "Famed 16th-century mosque renowned worldwide for its delicately carved marble latticework jali depicting the Tree of Life.",
+    "location": "Ahmedabad",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Calico Museum of Textiles",
+    "category": "culture",
+    "suitable_for": ["solo", "couple", "friends"],
+    "typical_time_hours": 2.5,
+    "opening_hours": "10:30-13:00",
+    "entry_fee_inr": 0,
+    "description": "Premier textile museum housing an exquisite collection of historic Indian fabrics, court textiles, and ceremonial tapestries.",
+    "location": "Ahmedabad",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Akshardham Temple Gandhinagar",
+    "category": "heritage",
+    "suitable_for": ["family", "relatives", "couple", "solo"],
+    "typical_time_hours": 3.0,
+    "opening_hours": "09:30-19:30",
+    "entry_fee_inr": 0,
+    "description": "Grand pink sandstone spiritual complex with manicured thematic gardens, cultural exhibition halls, and musical water shows.",
+    "location": "Gandhinagar",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Kankaria Lake",
+    "category": "family_fun",
+    "suitable_for": ["family", "friends", "couple"],
+    "typical_time_hours": 2.5,
+    "opening_hours": "09:00-22:00",
+    "entry_fee_inr": 25,
+    "description": "Vibrant lakefront promenade featuring the historic Nagina Wadi island palace, toy train, tethered hot-air balloon, and evening illumination.",
+    "location": "Ahmedabad",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "Science City",
+    "category": "family_fun",
+    "suitable_for": ["family", "friends"],
+    "typical_time_hours": 3.5,
+    "opening_hours": "10:00-20:00",
+    "entry_fee_inr": 50,
+    "description": "Sprawling educational center offering an aquatic gallery with shark tunnels, robotics park, planetarium, and interactive physics pavilions.",
+    "location": "Ahmedabad",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Modhera Sun Temple",
+    "category": "heritage",
+    "suitable_for": ["solo", "couple", "friends", "family", "relatives"],
+    "typical_time_hours": 2.0,
+    "opening_hours": "07:00-18:00",
+    "entry_fee_inr": 25,
+    "description": "Ancient 11th-century Solanki architectural marvel dedicated to the Sun God Surya, situated beside the step-terraced Surya Kund water tank.",
+    "location": "Mehsana",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Rani Ki Vav",
+    "category": "architecture",
+    "suitable_for": ["solo", "couple", "friends", "family", "relatives"],
+    "typical_time_hours": 2.0,
+    "opening_hours": "08:00-18:00",
+    "entry_fee_inr": 40,
+    "description": "UNESCO World Heritage stepwell built as an inverted temple with seven subterranean levels adorned with over 500 principal sculptures.",
+    "location": "Patan",
+    "best_time_of_day": "morning"
+  }
+]

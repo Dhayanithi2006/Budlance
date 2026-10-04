@@ -26,15 +26,23 @@ class SerpApiGateway:
         api_key: str | None = None,
         rate_limiter: AsyncRateLimiter | None = None,
         http_client: httpx.AsyncClient | None = None,
+        serpapi_live_enabled: bool | None = None,
     ) -> None:
         settings = get_settings()
-        self._api_key = api_key or settings.serpapi_api_key
+        self._api_key = api_key if api_key is not None else settings.serpapi_api_key
         self.rate_limiter = rate_limiter or AsyncRateLimiter(max_calls_per_minute=30, max_concurrent=5)
         self._http_client = http_client
+        self._live_enabled = (
+            serpapi_live_enabled
+            if serpapi_live_enabled is not None
+            else getattr(settings, "serpapi_live_enabled", True)
+        )
 
     @property
     def has_credentials(self) -> bool:
-        """Check if SERPAPI_API_KEY is configured."""
+        """Check if SERPAPI_API_KEY is configured and live search is enabled."""
+        if not self._live_enabled:
+            return False
         return bool(self._api_key and self._api_key.strip())
 
     async def execute_search(
@@ -43,7 +51,9 @@ class SerpApiGateway:
         params: dict[str, Any],
         max_retries: int = 3,
     ) -> dict[str, Any]:
-        """Execute a rate-limited and retry-protected SerpApi search."""
+        if engine in ("trains", "train_corridors", "buses", "bus_corridors"):
+            raise ValueError(f"Engine '{engine}' is an offline transit catalog and cannot be queried via SerpApi.")
+
         if not self.has_credentials:
             raise SerpApiAuthError(
                 "SerpApi API key is not configured. Set SERPAPI_API_KEY in .env."
@@ -55,11 +65,17 @@ class SerpApiGateway:
             engine,
         )
 
+        # SerpApi google_maps: when using 'location', SerpApi requires either 'z' or 'm' parameter
+        search_params = dict(params)
+        if engine == "google_maps" and "location" in search_params and not ("m" in search_params or "z" in search_params):
+            from budlance.config import get_settings
+            search_params["m"] = get_settings().maps_search_radius_meters
+
         # Merge engine and API key into request payload (key excluded from logs)
         request_params = {
             "api_key": self._api_key.strip(),
             "engine": engine,
-            **params,
+            **search_params,
         }
 
         attempt_counter = {"count": 0}
@@ -154,6 +170,10 @@ class SerpApiGateway:
     async def search_flights(self, params: dict[str, Any]) -> dict[str, Any]:
         """Flight schedules and fares via Google Flights."""
         return await self.execute_search("google_flights", params)
+
+    async def get_flight_booking_options(self, booking_token: str) -> dict[str, Any]:
+        """Booking options for a selected flight using its booking_token via Google Flights."""
+        return await self.execute_search("google_flights", {"booking_token": booking_token})
 
     async def search_hotels(self, params: dict[str, Any]) -> dict[str, Any]:
         """Hotel pricing and availability via Google Hotels."""

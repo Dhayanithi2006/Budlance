@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from budlance.ai.schemas import ParsedRescueIntent
 from budlance.ai.service import AIIntentService
 from budlance.cache.manager import CacheFallbackManager
+from budlance.config import get_settings
 from budlance.db.models import BudgetAllocation, RescueEvent, Trip, utc_now
 from budlance.db.repositories.itinerary_repo import ItineraryRepository
 from budlance.db.repositories.ledger_repo import LedgerRepository
@@ -147,9 +148,14 @@ class RescueService:
         if parsed_intent.location_or_context:
             search_query = f"places near {parsed_intent.location_or_context} {dest}"
 
+        settings = get_settings()
         envelope = await self.cache_manager.get_travel_data(
             engine="google_maps",
-            params={"q": search_query, "location": dest},
+            params={
+                "q": search_query,
+                "location": dest,
+                "m": settings.maps_search_radius_meters,
+            },
             trip_id=trip.id,
         )
 

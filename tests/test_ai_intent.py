@@ -259,9 +259,13 @@ async def test_gemini_client_mock_completion():
     assert res["budget"] == 15000
 
 
-def test_ai_intent_service_selects_openrouter():
+def test_ai_intent_service_selects_openrouter(monkeypatch):
     """Verify AIIntentService selects OpenRouterClient when OpenRouter credentials exist (Gemini disabled)."""
     from budlance.ai.client import OpenRouterClient
+    from budlance.config import get_settings
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-fake-key")
+    monkeypatch.setenv("OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
+    get_settings.cache_clear()
 
     service = AIIntentService()
     assert isinstance(service.client, OpenRouterClient)

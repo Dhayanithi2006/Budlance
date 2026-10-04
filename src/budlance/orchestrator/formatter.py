@@ -19,21 +19,36 @@ def format_feasible_plan(
     itinerary: GeneratedItinerary | None,
     ledger: LedgerSummary | None,
     downgrades: list[str] | None = None,
+    travel_party: str | None = None,
+    is_pass_unlocked: bool = False,
 ) -> str:
     """Format a successful, feasible trip plan for Telegram delivery."""
+    party_str = f" ({travel_party.title()})" if travel_party else ""
     lines = [
         f"🌴 *Budlance Trip Plan: {destination}*",
-        f"👥 {people} {'traveler' if people == 1 else 'travelers'} | ⏱️ {days} days",
+        f"👥 {people} {'traveler' if people == 1 else 'travelers'}{party_str} | ⏱️ {days} days",
+    ]
+    if is_pass_unlocked:
+        lines.append("🎟️ *Trip Pass: Active ✅*")
+
+    lines.extend([
         "",
         "💰 *Financial Waterfall:*",
         f"• Total Budget: {breakdown.currency} {breakdown.total_budget:,.2f}",
         f"• Fixed Costs (Travel + Stay): {breakdown.currency} {breakdown.bucket_a_fixed:,.2f}",
         f"• Daily Allowance (Food & Local Transit): {breakdown.currency} {breakdown.bucket_b_survival:,.2f}",
+    ])
+
+    # Include Curated Attraction fees if present in breakdown
+    if getattr(breakdown, "attraction_cost", Decimal("0.00")) > Decimal("0.00"):
+        lines.append(f"• Curated Attractions: {breakdown.currency} {breakdown.attraction_cost:,.2f}")
+
+    lines.extend([
         f"• Activities / Discretionary: {breakdown.currency} {breakdown.bucket_c_activities:,.2f}",
         f"• Rescue Reserve (Bucket D): {breakdown.currency} {breakdown.bucket_d_rescue:,.2f}",
         f"• Total Planned: {breakdown.currency} {breakdown.total_allocated:,.2f}",
         f"• Surplus Remaining: {breakdown.currency} {breakdown.remaining_surplus:,.2f}",
-    ]
+    ])
 
     # Transports & Hotel
     lines.append("")
@@ -58,10 +73,58 @@ def format_feasible_plan(
         for day in itinerary.days:
             lines.append(f"*Day {day.day_number}:* {day.theme_or_summary} (Est. {breakdown.currency} {day.daily_estimated_cost:,.2f})")
             for item in day.items:
-                lines.append(f"  • {item.time_slot}: {item.activity}")
+                fee_info = f" [₹{item.entry_fee_inr}]" if getattr(item, "entry_fee_inr", 0) and item.entry_fee_inr > 0 else ""
+                lines.append(f"  • *{item.time_slot}:* {item.activity}{fee_info}")
+                if getattr(item, "description", None) and item.description.strip():
+                    lines.append(f"    _{item.description.strip()}_")
 
     lines.append("")
     lines.append("✨ *In-Trip Rescue Active:* If it rains, an attraction is closed, or a driver asks for a high fare, message me here for instant replanning!")
+    return "\n".join(lines)
+
+
+def format_free_summary(
+    destination: str,
+    days: int,
+    people: int,
+    breakdown: BudgetBreakdown,
+    pass_amount: Decimal = Decimal("49.00"),
+    checkout_url: str | None = None,
+    travel_party: str | None = None,
+) -> str:
+    """Format the free reverse-budget discovery summary with Trip Pass unlock call-to-action."""
+    party_str = f" ({travel_party.title()})" if travel_party else ""
+    lines = [
+        f"🌴 *Budlance Trip Plan: {destination}*",
+        f"👥 {people} {'traveler' if people == 1 else 'travelers'}{party_str} | ⏱️ {days} days",
+        "",
+        "💰 *Financial Waterfall (Free Feasibility Analysis):*",
+        f"• Total Budget: {breakdown.currency} {breakdown.total_budget:,.2f}",
+        f"• Fixed Costs (Travel + Stay): {breakdown.currency} {breakdown.bucket_a_fixed:,.2f}",
+        f"• Daily Allowance (Food & Local Transit): {breakdown.currency} {breakdown.bucket_b_survival:,.2f}",
+    ]
+
+    if getattr(breakdown, "attraction_cost", Decimal("0.00")) > Decimal("0.00"):
+        lines.append(f"• Curated Attractions: {breakdown.currency} {breakdown.attraction_cost:,.2f}")
+
+    lines.extend([
+        f"• Activities / Discretionary: {breakdown.currency} {breakdown.bucket_c_activities:,.2f}",
+        f"• Rescue Reserve (Bucket D): {breakdown.currency} {breakdown.bucket_d_rescue:,.2f}",
+        f"• Total Planned: {breakdown.currency} {breakdown.total_allocated:,.2f}",
+        f"• Surplus Remaining: {breakdown.currency} {breakdown.remaining_surplus:,.2f}",
+        "",
+        "🔒 *Detailed Itinerary & Rescue Locked*",
+        f"Your budget of {breakdown.currency} {breakdown.total_budget:,.2f} is feasible! To unlock the day-by-day attraction schedule, booking deep links, and live In-Trip Rescue, get your Budlance Trip Pass.",
+        "",
+        f"🎟️ *Budlance Trip Pass: {breakdown.currency} {pass_amount:,.2f}*",
+    ])
+
+    if checkout_url:
+        lines.append(f"👉 [Unlock Full Trip Plan]({checkout_url})")
+    else:
+        lines.append("👉 Send 'unlock' to get checkout link, or send /demo_pass for judge/demo bypass.")
+
+    lines.append("_(Judge/Demo review: send /demo_pass to unlock instantly without payment)_")
     return "\n".join(lines)
 
 
@@ -122,7 +185,8 @@ def format_clarification(
 
         if known_context.people is not None:
             p = known_context.people
-            summary_parts.append(f"{p} {'traveler' if p == 1 else 'travelers'}")
+            party_suffix = f" ({known_context.travel_party})" if getattr(known_context, "travel_party", None) else ""
+            summary_parts.append(f"{p} {'traveler' if p == 1 else 'travelers'}{party_suffix}")
 
         if known_context.budget is not None:
             summary_parts.append(f"₹{int(known_context.budget):,}")
@@ -270,3 +334,89 @@ def split_telegram_message(text: str, max_length: int = 4096) -> list[str]:
         chunks.append("\n".join(current_chunk))
 
     return chunks
+
+
+def format_feasible_transport(
+    transport_mode: str,
+    transport_class: str | None,
+    estimated_cost: Decimal,
+    remaining_budget: Decimal,
+    currency: str = "INR",
+    booking_link: str | None = None,
+    operator: str | None = None,
+    people: int = 1,
+    origin: str | None = None,
+    destination: str | None = None,
+    is_exact_booking: bool = False,
+    seller: str | None = None,
+    flight_number: str | None = None,
+    departure_time: str | None = None,
+    arrival_time: str | None = None,
+) -> str:
+    """Format an immediate feasible transport preference response."""
+    class_label = transport_class.upper() if transport_class else ""
+    mode_label = transport_mode.lower()
+    pref_str = f"{class_label} {mode_label}".strip() if class_label else mode_label
+
+    lines = [
+        f"Your preferred {pref_str} option fits the current trip budget.",
+        "",
+        f"Estimated travel cost: ₹{estimated_cost:,.2f}" if currency == "INR" else f"Estimated travel cost: {currency} {estimated_cost:,.2f}",
+        f"Remaining budget impact: ₹{remaining_budget:,.2f}" if currency == "INR" else f"Remaining budget impact: {currency} {remaining_budget:,.2f}",
+        "",
+        "The option is viable. You can continue to the booking step.",
+    ]
+    if origin and destination:
+        lines.append(f"• Route: {origin} → {destination} (Round Trip)")
+    if operator:
+        lines.append(f"• Operator/Carrier: {operator}")
+    if flight_number:
+        lines.append(f"• Flight Number: {flight_number}")
+    if departure_time or arrival_time:
+        dep = departure_time or "Scheduled"
+        arr = arrival_time or "Scheduled"
+        lines.append(f"• Schedule: Dep {dep} — Arr {arr}")
+    if seller and seller != operator:
+        lines.append(f"• Booking Provider: {seller}")
+    if is_exact_booking:
+        lines.append("• Handoff Type: Direct Provider Option")
+    elif booking_link and "google.com/travel/flights" in booking_link:
+        lines.append("• Handoff Type: Provider Search Handoff")
+
+    if booking_link:
+        lines.append("")
+        lines.append("🔗 *External Booking Handoff:*")
+        lines.append(booking_link)
+        lines.append("")
+        lines.append("Reply with *Booked* once you have completed your external booking, and we will build your full itinerary!")
+    return "\n".join(lines)
+
+
+def format_infeasible_transport(
+    transport_mode: str,
+    transport_class: str | None,
+    people: int,
+    cost: Decimal,
+    budget: Decimal,
+    currency: str = "INR",
+    cheaper_alternatives: list[str] | None = None,
+) -> str:
+    """Format an immediate infeasible transport preference response explaining financial impact."""
+    class_label = transport_class.upper() if transport_class else ""
+    mode_label = transport_mode.lower()
+    pref_str = f"{class_label} {mode_label}".strip() if class_label else mode_label
+
+    travelers_str = f"{people} travelers" if people > 1 else "1 traveler"
+    cost_str = f"₹{cost:,.2f}" if currency == "INR" else f"{currency} {cost:,.2f}"
+    budget_str = f"₹{budget:,.2f}" if currency == "INR" else f"{currency} {budget:,.2f}"
+
+    lines = [
+        f"{pref_str} for {travelers_str} would require approximately {cost_str}.",
+        "",
+        f"Under your {budget_str} trip budget, this leaves insufficient room for the rest of the planned trip.",
+    ]
+    if cheaper_alternatives:
+        alts_str = " or ".join(cheaper_alternatives)
+        lines.append("")
+        lines.append(f"Would you like to try {alts_str} instead?")
+    return "\n".join(lines)

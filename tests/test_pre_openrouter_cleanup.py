@@ -285,7 +285,19 @@ def test_5_activities_amount_generation_and_consistency():
 
 @pytest.mark.asyncio
 async def test_6_theme_park_interest_transparent_unmatched_behavior():
-    """6. Theme-park request does not silently claim matching destination."""
+    """6. Theme-park request does not silently fabricate static destinations.
+
+    Open-ended destination request:
+    -> live destination discovery
+    -> if no candidates
+    -> controlled CLARIFICATION / no-results
+    Verifies:
+    - theme-park interest is preserved
+    - budget, days, people, origin are preserved
+    - no static destination (e.g. Goa) is fabricated
+    - no deleted destination catalog is used
+    - controlled clarification response is returned
+    """
     ai_service = AIIntentService(use_mock=True)
     prompt = "I have 19000, 3 people, 2 days, theme park going from Chennai"
     intent = await ai_service.parse_trip_intent(prompt)
@@ -297,7 +309,7 @@ async def test_6_theme_park_interest_transparent_unmatched_behavior():
     assert "theme park" in intent.interests
     assert intent.destination is None  # Needs discovery
 
-    # Orchestrator handles message and transparently informs user of fallback catalog
+    # Orchestrator handles message and returns controlled clarification without fabricating static catalog
     orch = BudlanceOrchestrator(ai_service=ai_service)
     result = await orch.handle_user_message(
         telegram_user_id=123456,
@@ -305,10 +317,19 @@ async def test_6_theme_park_interest_transparent_unmatched_behavior():
         message=prompt,
     )
 
-    assert result.status == "FEASIBLE"
-    # Destination must be selected from regional budget corridors (Goa)
-    assert result.selected_destination == "Goa"
-    # Must NOT silently claim Goa is a theme park destination
-    assert any("could not be matched in offline catalog" in d for d in result.downgrades_applied)
-    assert "could not be matched in offline catalog" in result.message_text
-    assert "[FALLBACK]" not in result.message_text
+    assert result.status in ("CLARIFICATION", "NOT_FEASIBLE")
+    assert result.selected_destination is None
+    if result.status == "CLARIFICATION":
+        assert "I couldn't find available destinations matching your budget from Chennai" in result.message_text
+    else:
+        assert "No feasible destination found" in result.message_text
+
+    # Pending intent must preserve user parameters for follow-up turn
+    pending = orch.conversation_repo.get_pending_intent(123456)
+    assert pending is not None
+    assert pending.budget == Decimal("19000")
+    assert pending.people == 3
+    assert pending.days == 2
+    assert pending.origin == "Chennai"
+    assert "theme park" in pending.interests
+    assert pending.destination is None

@@ -81,3 +81,14 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         chat_id,
         result.status,
     )
+
+
+async def demo_pass_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /demo_pass or /bypass command by dispatching to orchestrator."""
+    await text_message_handler(update, context)
+
+
+async def pass_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /pass or /trip_pass command by dispatching to orchestrator."""
+    await text_message_handler(update, context)
+

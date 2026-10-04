@@ -573,7 +573,15 @@ async def test_context_parse_uses_merge_prompt():
 
 @pytest.mark.asyncio
 async def test_context_parse_falls_back_on_api_error():
-    """When client raises, context-aware parse falls back to heuristic merge."""
+    """When client raises, context-aware parse falls back to heuristic action+field result.
+
+    The service returns an action-classified result (CHANGE_DAYS with days=4).
+    The orchestrator's apply_change_action() then applies it onto the existing context.
+    This test verifies the service returns days=4 and CHANGE_DAYS, and the merge
+    via apply_change_action() preserves all other fields.
+    """
+    from budlance.ai.schemas import TripAction
+
     existing = _intent(
         budget=Decimal("15000"), people=2, days=3,
         origin="Chennai", destination="Goa",
@@ -583,10 +591,16 @@ async def test_context_parse_falls_back_on_api_error():
     mock_client.chat_completion = AsyncMock(side_effect=Exception("Rate limited"))
 
     svc = AIIntentService(client=mock_client, use_mock=False)
-    # "Make it 4 days" should still parse correctly via heuristic
+    # "Make it 4 days" should still classify as CHANGE_DAYS with days=4 in fallback
     result = await svc.parse_trip_intent_with_context("Make it 4 days.", existing)
     assert result.days == 4
-    assert result.budget == Decimal("15000")  # preserved from existing
+    # Service returns action-specific result; orchestrator applies merge:
+    merged = existing.apply_change_action(result)
+    assert merged.budget == Decimal("15000")   # preserved from existing
+    assert merged.days == 4                    # updated
+    assert merged.people == 2                  # preserved
+    assert merged.action == TripAction.CHANGE_DAYS
+
 
 
 # ===========================================================================

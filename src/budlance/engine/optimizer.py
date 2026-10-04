@@ -49,6 +49,10 @@ class OptimizationEngine:
         available_hotels: list[HotelOption] | None = None,
         available_transports: list[FlightOption | TransitOption] | None = None,
         currency: str = "INR",
+        selected_attractions: list[Any] | None = None,
+        locked_days: set[int] | None = None,
+        requires_transport: bool = False,
+        requires_lodging: bool = False,
     ) -> OptimizationResult:
         """Run the optimization loop up to a maximum of 4 attempts."""
         # Baseline evaluation
@@ -70,7 +74,33 @@ class OptimizationEngine:
             local_transit_estimate=current_transit,
             activities_budget=current_activities,
             currency=currency,
+            selected_attractions=selected_attractions,
         )
+
+        has_invalid_transport = requires_transport and (
+            current_transport is None or current_transport.price <= Decimal("0.00")
+        )
+        has_invalid_lodging = requires_lodging and (
+            (current_hotel is None or current_hotel.total_price <= Decimal("0.00"))
+            and baseline_eval.breakdown.hotel_cost <= Decimal("0.00")
+        )
+
+        # Gate constraint: Optimizer cannot fabricate or bypass missing physical transport or lodging
+        if has_invalid_transport or has_invalid_lodging:
+            reason = "Missing valid physical transport" if has_invalid_transport else "Missing valid accommodation"
+            return OptimizationResult(
+                initial_status="NOT_FEASIBLE",
+                final_status="NOT_FEASIBLE",
+                is_feasible=False,
+                successful_attempt=None,
+                total_attempts=0,
+                final_evaluation=baseline_eval,
+                selected_transport=current_transport,
+                selected_hotel=current_hotel,
+                days=current_days,
+                explanation=f"{reason} cannot be optimized into feasibility.",
+                deficit=baseline_eval.deficit,
+            )
 
         if baseline_eval.is_feasible:
             # Already feasible, no downgrades needed
@@ -93,10 +123,14 @@ class OptimizationEngine:
         # =====================================================================
         # Attempt 1: Hotel tier down
         # =====================================================================
+        current_hotel_tier = "standard"
         downgraded_hotel = self._downgrade_hotel(current_hotel, available_hotels)
         if downgraded_hotel and (current_hotel is None or downgraded_hotel.total_price < current_hotel.total_price):
             current_hotel = downgraded_hotel
             downgrades_applied.append(f"Hotel downgraded to {current_hotel.name} ({currency} {current_hotel.total_price})")
+        elif current_hotel is None and current_days > 1:
+            current_hotel_tier = "budget"
+            downgrades_applied.append("Lodging tier adjusted to budget")
 
         latest_eval = self.budget_engine.evaluate(
             total_budget=total_budget,
@@ -108,10 +142,12 @@ class OptimizationEngine:
             local_transit_estimate=current_transit,
             activities_budget=current_activities,
             currency=currency,
+            selected_attractions=selected_attractions,
+            hotel_tier=current_hotel_tier,
         )
 
         self._record_attempt(trip_id, 1, "hotel_tier_down", latest_eval)
-        if latest_eval.is_feasible:
+        if latest_eval.is_feasible and not (requires_transport and (current_transport is None or current_transport.price <= Decimal("0.00"))) and not (requires_lodging and (current_hotel is None or current_hotel.total_price <= Decimal("0.00")) and latest_eval.breakdown.hotel_cost <= Decimal("0.00")):
             return self._build_success_result(
                 attempt_num=1,
                 evaluation=latest_eval,
@@ -140,10 +176,12 @@ class OptimizationEngine:
             local_transit_estimate=current_transit,
             activities_budget=current_activities,
             currency=currency,
+            selected_attractions=selected_attractions,
+            hotel_tier=current_hotel_tier,
         )
 
         self._record_attempt(trip_id, 2, "transport_class_down", latest_eval)
-        if latest_eval.is_feasible:
+        if latest_eval.is_feasible and not (requires_transport and (current_transport is None or current_transport.price <= Decimal("0.00"))) and not (requires_lodging and (current_hotel is None or current_hotel.total_price <= Decimal("0.00")) and latest_eval.breakdown.hotel_cost <= Decimal("0.00")):
             return self._build_success_result(
                 attempt_num=2,
                 evaluation=latest_eval,
@@ -156,7 +194,8 @@ class OptimizationEngine:
         # =====================================================================
         # Attempt 3: Reduce trip length by 1 day
         # =====================================================================
-        if current_days > 1:
+        min_allowed_days = max(locked_days) if locked_days else 1
+        if current_days > min_allowed_days:
             current_days -= 1
             # Re-scale hotel stay for (current_days) nights
             if current_hotel and current_hotel.price_per_night:
@@ -178,10 +217,12 @@ class OptimizationEngine:
             local_transit_estimate=current_transit,
             activities_budget=current_activities,
             currency=currency,
+            selected_attractions=selected_attractions,
+            hotel_tier=current_hotel_tier,
         )
 
         self._record_attempt(trip_id, 3, "reduce_trip_length", latest_eval)
-        if latest_eval.is_feasible:
+        if latest_eval.is_feasible and not (requires_transport and (current_transport is None or current_transport.price <= Decimal("0.00"))) and not (requires_lodging and (current_hotel is None or current_hotel.total_price <= Decimal("0.00")) and latest_eval.breakdown.hotel_cost <= Decimal("0.00")):
             return self._build_success_result(
                 attempt_num=3,
                 evaluation=latest_eval,
@@ -209,10 +250,12 @@ class OptimizationEngine:
             local_transit_estimate=current_transit,
             activities_budget=current_activities,
             currency=currency,
+            selected_attractions=selected_attractions,
+            hotel_tier=current_hotel_tier,
         )
 
         self._record_attempt(trip_id, 4, "trim_discretionary_b", latest_eval)
-        if latest_eval.is_feasible:
+        if latest_eval.is_feasible and not (requires_transport and (current_transport is None or current_transport.price <= Decimal("0.00"))) and not (requires_lodging and (current_hotel is None or current_hotel.total_price <= Decimal("0.00")) and latest_eval.breakdown.hotel_cost <= Decimal("0.00")):
             return self._build_success_result(
                 attempt_num=4,
                 evaluation=latest_eval,

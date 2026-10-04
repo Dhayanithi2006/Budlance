@@ -156,6 +156,8 @@ class VirtualLedgerManager:
         amount: Decimal,
         description: str,
         source: ExpenseSource = "user_reported",
+        actual_amount: Decimal | None = None,
+        day_number: int | None = None,
     ) -> LedgerEntry:
         """Record a user-reported spending transaction against a budget category.
 
@@ -181,6 +183,8 @@ class VirtualLedgerManager:
             planned_amount=Decimal("0.00"),
             spent_amount=amount,
             remaining_amount=new_remaining,
+            actual_amount=actual_amount if actual_amount is not None else amount,
+            day_number=day_number,
             source=source,
             created_at=utc_now(),
         )

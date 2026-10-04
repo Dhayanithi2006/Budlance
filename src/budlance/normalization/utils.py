@@ -34,10 +34,15 @@ def parse_price_and_currency(raw_value: Any, default_currency: str = "INR") -> t
     elif "₹" in clean or "INR" in clean.upper() or "RS" in clean.upper():
         currency = "INR"
 
+    # Check for negative value indicators (e.g. "-500", "-₹500", "₹-500")
+    is_negative = bool(re.search(r"-\s*[\$€£₹A-Za-z]*[0-9]", clean))
+
     # Extract digits and optional decimal point
-    num_match = re.search(r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)", clean)
+    num_match = re.search(r"([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)", clean)
     if num_match:
         sanitized_num = num_match.group(1).replace(",", "")
+        if is_negative:
+            sanitized_num = f"-{sanitized_num}"
         try:
             return Decimal(sanitized_num), currency
         except Exception:

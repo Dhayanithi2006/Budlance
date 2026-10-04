@@ -55,8 +55,15 @@ class OpenRouterClient:
             "Content-Type": "application/json",
         }
 
+        settings = get_settings()
+        models = [self.model]
+        fallback_model = getattr(settings, "openrouter_fallback_model", None)
+        if fallback_model and fallback_model != self.model:
+            models.append(fallback_model)
+
         payload = {
             "model": self.model,
+            "models": models,
             "messages": messages,
             "response_format": {"type": "json_object"},
             "temperature": temperature,
@@ -68,7 +75,7 @@ class OpenRouterClient:
             client = httpx.AsyncClient(timeout=30.0)
             should_close = True
 
-        max_retries = 3
+        max_retries = 2
 
         try:
             for attempt in range(1, max_retries + 1):
@@ -81,12 +88,12 @@ class OpenRouterClient:
                     response = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
                 except httpx.TimeoutException as exc:
                     if attempt < max_retries:
-                        await asyncio.sleep(1.5 * attempt)
+                        await asyncio.sleep(1.0 * attempt)
                         continue
                     raise OpenRouterNetworkError(f"OpenRouter request timed out: {exc}") from exc
                 except httpx.RequestError as exc:
                     if attempt < max_retries:
-                        await asyncio.sleep(1.5 * attempt)
+                        await asyncio.sleep(1.0 * attempt)
                         continue
                     raise OpenRouterNetworkError(f"OpenRouter network communication error: {exc}") from exc
 
@@ -106,7 +113,7 @@ class OpenRouterClient:
                         attempt,
                     )
                     if attempt < max_retries:
-                        await asyncio.sleep(2.0 * attempt)
+                        await asyncio.sleep(0.5)
                         continue
                     raise OpenRouterResponseError(
                         f"OpenRouter API returned HTTP {response.status_code} after {max_retries} attempts: {response.text[:200]}"

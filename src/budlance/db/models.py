@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID, uuid4
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def utc_now() -> datetime:
@@ -47,7 +47,7 @@ class User(BaseModel):
 # ============================================================================
 # 2. Trip
 # ============================================================================
-TripStatus = Literal["planning", "active", "completed", "cancelled"]
+TripStatus = Literal["PLANNING", "ACTIVE", "COMPLETED"]
 
 
 class Trip(BaseModel):
@@ -63,10 +63,25 @@ class Trip(BaseModel):
     currency: str = "INR"
     people_count: int = 1
     duration_days: int = 1
-    status: TripStatus = "planning"
+    status: TripStatus = "PLANNING"
+    current_day: int = Field(default=1, ge=1)
     is_active: bool = True  # Used by Rescue Mode to locate the current active trip
+    completion_reason: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, v: Any) -> str:
+        """Normalize case-insensitive status values to authoritative canonical uppercase."""
+        if isinstance(v, str):
+            v_up = v.strip().upper()
+            if v_up in ("PLANNING", "ACTIVE", "COMPLETED"):
+                return v_up
+            raise ValueError(f"Invalid trip status: '{v}'. Canonical statuses are: PLANNING, ACTIVE, COMPLETED")
+        if v is None:
+            return "PLANNING"
+        raise ValueError(f"Invalid trip status type: {type(v)}. Expected string.")
 
 
 # ============================================================================
@@ -85,7 +100,10 @@ class TripIntent(BaseModel):
     origin: str | None = None
     destination: str | None = None
     interests: list[str] = Field(default_factory=list)
+    travel_party: str | None = None
     traveler_type: str | None = None
+    transport_mode: str | None = None
+    transport_class: str | None = None
     raw_prompt: str | None = None
     extracted_at: datetime = Field(default_factory=utc_now)
 
@@ -221,6 +239,8 @@ class LedgerEntry(BaseModel):
     planned_amount: Decimal = Decimal("0.00")
     spent_amount: Decimal = Decimal("0.00")
     remaining_amount: Decimal = Decimal("0.00")
+    actual_amount: Decimal | None = None
+    day_number: int | None = None
     source: ExpenseSource = "estimated"
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -298,3 +318,47 @@ class ApiUsage(BaseModel):
     call_count: int = 1
     cached_count: int = 0
     created_at: datetime = Field(default_factory=utc_now)
+
+
+# ============================================================================
+# 15. Trip Pass (Monetization & Access Control)
+# ============================================================================
+PassStatus = Literal["FREE", "CHECKOUT_PENDING", "PAID", "PAYMENT_FAILED", "PAYMENT_ABANDONED"]
+
+
+class TripPass(BaseModel):
+    """Trip Pass monetization entity unlocking premium planning and rescue for a specific trip."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(default_factory=uuid4)
+    trip_id: UUID
+    telegram_user_id: int
+    telegram_chat_id: int
+    amount: Decimal = Decimal("49.00")
+    currency: str = "INR"
+    provider: str = "razorpay"  # razorpay, stripe, demo
+    payment_reference: str | None = None
+    status: PassStatus = "FREE"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+    @property
+    def checkout_url(self) -> str | None:
+        """Convenience property accessing checkout URL from pass metadata."""
+        return self.metadata.get("checkout_url")
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, v: Any) -> str:
+        """Normalize case-insensitive status values to authoritative canonical uppercase."""
+        if isinstance(v, str):
+            v_up = v.strip().upper()
+            if v_up in ("FREE", "CHECKOUT_PENDING", "PAID", "PAYMENT_FAILED", "PAYMENT_ABANDONED"):
+                return v_up
+            raise ValueError(
+                f"Invalid pass status: '{v}'. Canonical statuses are: FREE, CHECKOUT_PENDING, PAID, PAYMENT_FAILED, PAYMENT_ABANDONED"
+            )
+        if v is None:
+            return "FREE"
+        raise ValueError(f"Invalid pass status type: {type(v)}. Expected string.")

@@ -28,6 +28,7 @@ class BudgetBreakdown(BaseModel):
     hotel_cost: Decimal
     food_cost: Decimal
     local_transit_cost: Decimal
+    attraction_cost: Decimal = Field(default=Decimal("0.00"), description="Curated attraction entry fees")
 
     # Balance
     total_allocated: Decimal

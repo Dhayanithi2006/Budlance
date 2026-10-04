@@ -68,6 +68,8 @@ class LedgerRepository:
                     "planned_amount": float(entry.planned_amount),
                     "spent_amount": float(entry.spent_amount),
                     "remaining_amount": float(entry.remaining_amount),
+                    "actual_amount": float(entry.actual_amount) if entry.actual_amount is not None else None,
+                    "day_number": entry.day_number,
                     "source": entry.source,
                     "created_at": entry.created_at.isoformat(),
                 })

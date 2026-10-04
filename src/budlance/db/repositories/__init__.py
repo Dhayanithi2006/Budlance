@@ -9,6 +9,7 @@ from budlance.db.repositories.attempt_repo import AttemptRepository
 from budlance.db.repositories.rescue_repo import RescueRepository
 from budlance.db.repositories.cache_repo import CacheRepository
 from budlance.db.repositories.usage_repo import UsageRepository
+from budlance.db.repositories.trip_pass_repo import TripPassRepository
 
 __all__ = [
     "UserRepository",
@@ -20,4 +21,5 @@ __all__ = [
     "RescueRepository",
     "CacheRepository",
     "UsageRepository",
+    "TripPassRepository",
 ]

@@ -35,6 +35,9 @@ class ReverseBudgetEngine:
         local_transit_estimate: LocalTransitEstimate,
         activities_budget: Decimal = Decimal("0.00"),
         currency: str = "INR",
+        attraction_cost: Decimal = Decimal("0.00"),
+        selected_attractions: list[Any] | None = None,
+        hotel_tier: str = "standard",
     ) -> BudgetEvaluationResult:
         """Evaluate complete trip feasibility against the total budget constraint.
 
@@ -42,8 +45,9 @@ class ReverseBudgetEngine:
         1. Reserve Rescue Fund (Bucket D).
         2. Subtract Known Fixed Costs: Transport + Stay (Bucket A).
         3. Verify Minimum Daily Allowance: Food + Local Transit (Bucket B).
-        4. Allocate Activities / Discretionary Spending (Bucket C).
-        5. Assert Budget Invariant: Total Allocated <= Total Budget.
+        4. Account for Curated Attraction Fees (scaled by people).
+        5. Allocate Activities / Discretionary Spending (Bucket C).
+        6. Assert Budget Invariant: Total Allocated <= Total Budget.
         """
         if total_budget <= Decimal("0.00"):
             return self._build_infeasible_result(
@@ -57,12 +61,35 @@ class ReverseBudgetEngine:
                 reason="Total declared budget must be greater than zero.",
             )
 
+        # 0. Calculate attraction entry fees if selected attractions provided
+        if selected_attractions:
+            calc_attraction = Decimal("0.00")
+            for a in selected_attractions:
+                fee = getattr(a, "entry_fee_inr", None)
+                if fee is None and isinstance(a, dict):
+                    fee = a.get("entry_fee_inr", 0)
+                fee_val = Decimal(str(fee or 0))
+                calc_attraction += fee_val * people
+            attraction_cost = calc_attraction
+        elif attraction_cost is None:
+            attraction_cost = Decimal("0.00")
+
         # 1. Bucket D: Rescue Reserve
         rescue_reserve = round(total_budget * self.reserve_percent, 2)
 
         # 2. Bucket A: Fixed Costs (Transport + Hotel)
         transport_cost = transport.price if transport else Decimal("0.00")
-        hotel_cost = hotel.total_price if hotel else Decimal("0.00")
+        if hotel:
+            hotel_cost = hotel.total_price
+        elif days > 1:
+            # Multi-day trip requires accommodation. When live provider hotel is absent,
+            # use offline planning lodging estimate so accommodation is not zero-cost.
+            rooms = max(1, (people + 1) // 2)
+            nights = max(1, days - 1)
+            nightly_rate = self.fallback.get_offline_lodging_estimate(hotel_tier)
+            hotel_cost = nightly_rate * Decimal(rooms) * Decimal(nights)
+        else:
+            hotel_cost = Decimal("0.00")
         bucket_a_fixed = transport_cost + hotel_cost
 
         # 3. Bucket B: Survival / Daily (Food + Local Transit)
@@ -70,8 +97,8 @@ class ReverseBudgetEngine:
         local_transit_cost = local_transit_estimate.total_cost
         bucket_b_survival = food_cost + local_transit_cost
 
-        # 4. Mandatory minimum non-discretionary commitments
-        mandatory_costs = rescue_reserve + bucket_a_fixed + bucket_b_survival
+        # 4. Mandatory minimum non-discretionary commitments including attraction entry fees
+        mandatory_costs = rescue_reserve + bucket_a_fixed + bucket_b_survival + attraction_cost
 
         # Build provenance map
         provenance = {
@@ -81,6 +108,7 @@ class ReverseBudgetEngine:
             "local_transit": local_transit_estimate.source,
             "rescue_reserve": DataSource.ESTIMATED,
             "activities": DataSource.ESTIMATED,
+            "attractions": DataSource.ESTIMATED,
         }
 
         # Check if mandatory commitments already exceed user budget
@@ -93,6 +121,8 @@ class ReverseBudgetEngine:
                 contributors.append(f"Accommodation ({currency} {hotel_cost})")
             if bucket_b_survival > (total_budget * Decimal("0.30")):
                 contributors.append(f"Daily survival ({currency} {bucket_b_survival})")
+            if attraction_cost > (total_budget * Decimal("0.15")):
+                contributors.append(f"Attractions ({currency} {attraction_cost})")
 
             breakdown = BudgetBreakdown(
                 total_budget=total_budget,
@@ -105,6 +135,7 @@ class ReverseBudgetEngine:
                 hotel_cost=hotel_cost,
                 food_cost=food_cost,
                 local_transit_cost=local_transit_cost,
+                attraction_cost=attraction_cost,
                 total_allocated=mandatory_costs,
                 remaining_surplus=Decimal("0.00"),
                 provenance=provenance,
@@ -140,6 +171,7 @@ class ReverseBudgetEngine:
                 hotel_cost=hotel_cost,
                 food_cost=food_cost,
                 local_transit_cost=local_transit_cost,
+                attraction_cost=attraction_cost,
                 total_allocated=mandatory_costs + activities_budget,
                 remaining_surplus=Decimal("0.00"),
                 provenance=provenance,
@@ -174,6 +206,7 @@ class ReverseBudgetEngine:
             hotel_cost=hotel_cost,
             food_cost=food_cost,
             local_transit_cost=local_transit_cost,
+            attraction_cost=attraction_cost,
             total_allocated=total_allocated,
             remaining_surplus=remaining_surplus,
             provenance=provenance,

@@ -1,9 +1,9 @@
 """Models representing structured day-by-day itineraries."""
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from budlance.serpapi.models import DataSource
 
 
@@ -19,6 +19,17 @@ class ItineraryItem(BaseModel):
     planned_cost: Decimal = Decimal("0.00")
     source: DataSource = DataSource.LIVE
     notes: str | None = None
+    # Real attraction and structured free-time metadata
+    is_curated: bool = False
+    attraction_name: str | None = None
+    opening_hours: str | None = None
+    entry_fee_inr: int = 0
+    description: str = ""
+    slot_type: str | None = None
+    suggestion: str | None = None
+
+
+DayStatus = Literal["UPCOMING", "IN_PROGRESS", "COMPLETED", "MODIFIED"]
 
 
 class ItineraryDay(BaseModel):
@@ -29,6 +40,19 @@ class ItineraryDay(BaseModel):
     theme_or_summary: str
     items: list[ItineraryItem] = Field(default_factory=list)
     daily_estimated_cost: Decimal = Decimal("0.00")
+    status: DayStatus = "UPCOMING"
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_up = v.upper()
+            if v_up in ("UPCOMING", "IN_PROGRESS", "COMPLETED", "MODIFIED"):
+                return v_up
+        return v
+
+
+DayPlan = ItineraryDay
 
 
 class GeneratedItinerary(BaseModel):

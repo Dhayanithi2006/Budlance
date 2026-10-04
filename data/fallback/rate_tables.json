@@ -9,5 +9,18 @@
     "cab_per_km": 22,
     "metro_bus_daily_pass": 100
   },
-  "safety_rescue_reserve_percent": 0.10
+  "safety_rescue_reserve_percent": 0.10,
+  "offline_train_fare_estimates_inr": {
+    "1ac": 4850,
+    "2ac": 2850,
+    "3ac": 1950,
+    "sleeper": 750,
+    "sl": 750,
+    "default": 1500
+  },
+  "offline_lodging_estimates_per_night_inr": {
+    "budget": 1200,
+    "standard": 2500,
+    "comfort": 5000
+  }
 }

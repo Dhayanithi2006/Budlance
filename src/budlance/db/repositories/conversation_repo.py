@@ -8,7 +8,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from supabase import Client
 
@@ -35,7 +35,13 @@ def _intent_to_dict(intent: ParsedTripIntent) -> dict:
         "origin": intent.origin,
         "destination": intent.destination,
         "interests": intent.interests,
+        "travel_party": intent.travel_party,
         "traveler_type": intent.traveler_type,
+        "transport_mode": intent.transport_mode,
+        "transport_class": intent.transport_class,
+        "booking_confirmed": intent.booking_confirmed,
+        "pending_action": intent.pending_action,
+        "reconciling_trip_id": intent.reconciling_trip_id,
     }
 
 
@@ -48,7 +54,13 @@ def _dict_to_intent(data: dict) -> ParsedTripIntent:
         origin=data.get("origin"),
         destination=data.get("destination"),
         interests=data.get("interests", []),
+        travel_party=data.get("travel_party") or (data.get("traveler_type") if data.get("traveler_type") in ("solo", "couple", "friends", "family", "relatives") else None),
         traveler_type=data.get("traveler_type"),
+        transport_mode=data.get("transport_mode"),
+        transport_class=data.get("transport_class"),
+        booking_confirmed=bool(data.get("booking_confirmed", False)),
+        pending_action=data.get("pending_action"),
+        reconciling_trip_id=data.get("reconciling_trip_id"),
     )
 
 
@@ -145,3 +157,34 @@ class ConversationStateRepository:
                     exc,
                 )
         self._memory_store.pop(chat_id, None)
+
+    def save_reconciliation_state(
+        self,
+        chat_id: int,
+        trip_id: UUID,
+        planned_budget: Decimal | None = None,
+        completion_reason: str | None = None,
+    ) -> None:
+        """Persist explicit pending LOG_ACTUAL_SPEND state for trip reconciliation."""
+        reconcile_intent = ParsedTripIntent(
+            pending_action="LOG_ACTUAL_SPEND",
+            reconciling_trip_id=str(trip_id),
+            budget=planned_budget,
+            completion_reason=completion_reason,
+        )
+        self.save_pending_intent(chat_id, reconcile_intent)
+
+    def is_reconciling(self, chat_id: int) -> bool:
+        """Check if conversation is awaiting final reconciliation response."""
+        intent = self.get_pending_intent(chat_id)
+        return bool(intent and intent.pending_action == "LOG_ACTUAL_SPEND")
+
+    def get_reconciling_trip_id(self, chat_id: int) -> UUID | None:
+        """Retrieve trip ID undergoing reconciliation, if any."""
+        intent = self.get_pending_intent(chat_id)
+        if intent and intent.pending_action == "LOG_ACTUAL_SPEND" and intent.reconciling_trip_id:
+            try:
+                return UUID(intent.reconciling_trip_id)
+            except (ValueError, TypeError):
+                return None
+        return None

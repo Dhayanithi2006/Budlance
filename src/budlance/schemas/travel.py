@@ -27,6 +27,15 @@ class FlightOption(BaseModel):
     duration_minutes: int | None = None
     stops: int = 0
     deep_link: str | None = None
+    seller: str | None = None
+    booking_token: str | None = None
+    booking_request: dict[str, Any] | None = None
+    outbound_date: str | None = None
+    return_date: str | None = None
+    is_exact_booking: bool = False
+    return_flight_number: str | None = None
+    return_departure_time: str | None = None
+    return_arrival_time: str | None = None
     source: DataSource = DataSource.LIVE
     is_fallback: bool = False
 

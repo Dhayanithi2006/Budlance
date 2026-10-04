@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
+from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
@@ -70,7 +71,8 @@ def test_all_14_domain_models_instantiation():
         duration_days=4,
     )
     assert trip.is_active is True
-    assert trip.status == "planning"
+    assert trip.status == "PLANNING"
+    assert trip.current_day == 1
 
     # 3. TripIntent
     intent = TripIntent(
@@ -145,6 +147,8 @@ def test_all_14_domain_models_instantiation():
         source="live",
     )
     assert ledger.source == "live"
+    assert ledger.actual_amount is None
+    assert ledger.day_number is None
 
     # 11. PlanAttempt
     attempt = PlanAttempt(
@@ -337,3 +341,163 @@ def test_cache_and_usage_repositories():
     assert len(records) == 2
     assert records[0].call_count == 1
     assert records[1].cached_count == 1
+
+
+def test_trip_lifecycle_schema_extensions():
+    """Verify Task 1 schema extensions: Trip status/current_day, LedgerEntry actual_amount/day_number, and ItineraryDay status."""
+    import pytest
+    from pydantic import ValidationError
+    from budlance.itinerary.models import ItineraryDay
+
+    uid = uuid4()
+    chat_id = 12345678
+
+    # 1. Trip status normalization & validation
+    trip_default = Trip(user_id=uid, telegram_chat_id=chat_id, destination="Goa", budget_total=Decimal("10000.00"))
+    assert trip_default.status == "PLANNING"
+    assert trip_default.current_day == 1
+
+    trip_active = Trip(user_id=uid, telegram_chat_id=chat_id, destination="Goa", budget_total=Decimal("10000.00"), status="active", current_day=3)
+    assert trip_active.status == "ACTIVE"
+    assert trip_active.current_day == 3
+
+    trip_completed = Trip(user_id=uid, telegram_chat_id=chat_id, destination="Goa", budget_total=Decimal("10000.00"), status="completed")
+    assert trip_completed.status == "COMPLETED"
+
+    with pytest.raises(ValidationError):
+        Trip(user_id=uid, telegram_chat_id=chat_id, destination="Goa", budget_total=Decimal("10000.00"), status="INVALID_STATUS")
+
+    with pytest.raises(ValidationError):
+        Trip(user_id=uid, telegram_chat_id=chat_id, destination="Goa", budget_total=Decimal("10000.00"), current_day=0)
+
+    # 2. LedgerEntry actual_amount and day_number
+    entry = LedgerEntry(
+        trip_id=uuid4(),
+        category="activities",
+        description="Scuba diving",
+        allocated_amount=Decimal("3000.00"),
+        planned_amount=Decimal("2800.00"),
+        actual_amount=Decimal("2950.50"),
+        day_number=2,
+    )
+    assert entry.actual_amount == Decimal("2950.50")
+    assert entry.day_number == 2
+
+    # 3. ItineraryDay status
+    day_default = ItineraryDay(day_number=1, date="2026-10-05", theme_or_summary="Beach day")
+    assert day_default.status == "UPCOMING"
+
+    day_in_prog = ItineraryDay(day_number=2, date="2026-10-06", theme_or_summary="Heritage tour", status="in_progress")
+    assert day_in_prog.status == "IN_PROGRESS"
+
+    day_comp = ItineraryDay(day_number=1, date="2026-10-05", theme_or_summary="Arrival", status="COMPLETED")
+    assert day_comp.status == "COMPLETED"
+
+    day_mod = ItineraryDay(day_number=3, date="2026-10-07", theme_or_summary="Watersports", status="modified")
+    assert day_mod.status == "MODIFIED"
+
+    with pytest.raises(ValidationError):
+        ItineraryDay(day_number=1, date="2026-10-05", theme_or_summary="Invalid", status="UNKNOWN")
+
+    # 4. TripRepository update_current_day and update_trip_status
+    repo = TripRepository(client=None)
+    created = repo.create_trip(user_id=uid, telegram_chat_id=99999, destination="Ooty", budget_total=Decimal("15000.00"))
+    assert created.status == "PLANNING"
+    assert created.current_day == 1
+
+    assert repo.update_trip_status(created.id, "active") is True
+    assert repo.update_current_day(created.id, 2) is True
+    fetched = repo.get_trip(created.id)
+    assert fetched.status == "ACTIVE"
+    assert fetched.current_day == 2
+
+
+def test_trip_status_database_consistency_and_completion_reason():
+    """Verify canonical uppercase status serialization and completion_reason persistence across create and update."""
+    uid = uuid4()
+    mock_client = MagicMock()
+    mock_table = MagicMock()
+    mock_client.table.return_value = mock_table
+    mock_table.insert.return_value.execute.return_value = MagicMock(
+        data=[{
+            "id": str(uuid4()),
+            "user_id": str(uid),
+            "telegram_chat_id": 11111,
+            "destination": "Goa",
+            "origin": "Chennai",
+            "budget_total": 25000.0,
+            "currency": "INR",
+            "people_count": 2,
+            "duration_days": 3,
+            "status": "PLANNING",
+            "current_day": 1,
+            "is_active": True,
+            "created_at": "2026-10-02T12:00:00Z",
+            "updated_at": "2026-10-02T12:00:00Z",
+        }]
+    )
+    mock_table.update.return_value.eq.return_value.execute.return_value = MagicMock(
+        data=[{"id": str(uuid4()), "status": "COMPLETED"}]
+    )
+
+    repo = TripRepository(client=mock_client)
+
+    # 1. create_trip with explicit PLANNING (uppercase)
+    repo.create_trip(
+        user_id=uid, telegram_chat_id=11111, budget_total=Decimal("25000.00"),
+        destination="Goa", status="PLANNING"
+    )
+    insert_call_args = mock_table.insert.call_args[0][0]
+    assert insert_call_args["status"] == "PLANNING", f"Expected PLANNING, got {insert_call_args['status']}"
+
+    # 2. create_trip with lowercase planning input
+    repo.create_trip(
+        user_id=uid, telegram_chat_id=11111, budget_total=Decimal("25000.00"),
+        destination="Goa", status="planning"
+    )
+    insert_call_args = mock_table.insert.call_args[0][0]
+    assert insert_call_args["status"] == "PLANNING", f"Expected canonical PLANNING for lowercase input, got {insert_call_args['status']}"
+
+    # 3. create_trip with ACTIVE
+    repo.create_trip(
+        user_id=uid, telegram_chat_id=11111, budget_total=Decimal("25000.00"),
+        destination="Goa", status="ACTIVE"
+    )
+    insert_call_args = mock_table.insert.call_args[0][0]
+    assert insert_call_args["status"] == "ACTIVE", f"Expected ACTIVE, got {insert_call_args['status']}"
+
+    # 4. create_trip with lowercase active input
+    repo.create_trip(
+        user_id=uid, telegram_chat_id=11111, budget_total=Decimal("25000.00"),
+        destination="Goa", status="active"
+    )
+    insert_call_args = mock_table.insert.call_args[0][0]
+    assert insert_call_args["status"] == "ACTIVE", f"Expected canonical ACTIVE for lowercase input, got {insert_call_args['status']}"
+
+    # 5. update_trip_status canonical serialization with completion_reason
+    trip_id = uuid4()
+    repo.update_trip_status(
+        trip_id=trip_id,
+        status="completed",
+        completion_reason="USER_CONFIRMED",
+        is_active=False
+    )
+    update_call_args = mock_table.update.call_args[0][0]
+    assert update_call_args["status"] == "COMPLETED"
+    assert update_call_args["completion_reason"] == "USER_CONFIRMED"
+    assert update_call_args["is_active"] is False
+
+    # 6. Memory store consistency
+    mem_repo = TripRepository(client=None)
+    mem_trip = mem_repo.create_trip(
+        user_id=uid, telegram_chat_id=22222, budget_total=Decimal("15000.00"),
+        destination="Delhi", status="planning"
+    )
+    assert mem_trip.status == "PLANNING"
+    mem_repo.update_trip_status(mem_trip.id, "completed", completion_reason="skipped", is_active=False)
+    fetched = mem_repo.get_trip(mem_trip.id)
+    assert fetched.status == "COMPLETED"
+    assert fetched.completion_reason == "skipped"
+    assert fetched.is_active is False
+
+

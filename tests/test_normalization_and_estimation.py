@@ -76,7 +76,7 @@ def test_flight_normalization_valid():
 
 
 def test_flight_normalization_missing_optional_fields():
-    """Verify flight normalizer handles partial or sparse flight data safely."""
+    """Verify flight normalizer handles partial or sparse flight data safely when price is valid."""
     fixture_data = {
         "best_flights": [
             {
@@ -86,7 +86,7 @@ def test_flight_normalization_missing_optional_fields():
                         # Missing flight_number, time, airports
                     }
                 ],
-                # Missing price
+                "price": 3500,
             }
         ]
     }
@@ -102,8 +102,27 @@ def test_flight_normalization_missing_optional_fields():
     flight = options[0]
     assert flight.airline == "Air India"
     assert flight.flight_number is None
-    assert flight.price == Decimal("0.00")
+    assert flight.price == Decimal("3500")
     assert flight.source == DataSource.CACHED
+
+
+def test_flight_normalization_rejects_missing_price():
+    """Verify flight normalizer rejects items without a price at the normalization source."""
+    fixture_data = {
+        "best_flights": [
+            {
+                "flights": [{"airline": "Air India"}],
+                # Missing price field
+            }
+        ]
+    }
+    envelope = TravelDataEnvelope(
+        source=DataSource.LIVE,
+        engine="google_flights",
+        query_hash="hash_flights_no_price",
+        data=fixture_data,
+    )
+    assert normalize_flights(envelope) == []
 
 
 # ============================================================================
@@ -143,6 +162,109 @@ def test_hotel_normalization_valid():
     assert hotel.rating == 4.7
     assert hotel.review_count == 1820
     assert hotel.source == DataSource.LIVE
+
+
+def test_hotel_normalization_valid_positive_price_accepts():
+    """Verify hotel with valid property and positive price is accepted."""
+    fixture_data = {
+        "properties": [
+            {
+                "name": "Positive Hotel One",
+                "rate_per_night": {"extracted_lowest": 2500},
+                "total_rate": {"extracted_lowest": 5000},
+            },
+            {
+                "name": "Positive Hotel Night Only",
+                "rate_per_night": {"lowest": "₹3,200"},
+            },
+            {
+                "name": "Positive Hotel Total Only",
+                "total_rate": {"extracted_lowest": 7500},
+            },
+        ]
+    }
+    envelope = TravelDataEnvelope(
+        source=DataSource.LIVE,
+        engine="google_hotels",
+        query_hash="hash_pos_hotels",
+        data=fixture_data,
+    )
+    hotels = normalize_hotels(envelope)
+    assert len(hotels) == 3
+
+    assert hotels[0].name == "Positive Hotel One"
+    assert hotels[0].price_per_night == Decimal("2500")
+    assert hotels[0].total_price == Decimal("5000")
+
+    assert hotels[1].name == "Positive Hotel Night Only"
+    assert hotels[1].price_per_night == Decimal("3200")
+    assert hotels[1].total_price == Decimal("3200")
+
+    assert hotels[2].name == "Positive Hotel Total Only"
+    assert hotels[2].price_per_night == Decimal("7500")
+    assert hotels[2].total_price == Decimal("7500")
+
+
+def test_hotel_normalization_missing_invalid_zero_price_rejects():
+    """Verify hotel with missing, invalid, zero, or negative price is strictly rejected."""
+    fixture_data = {
+        "properties": [
+            # 1. Missing price completely
+            {"name": "Missing Price Hotel"},
+            # 2. None prices
+            {"name": "None Price Hotel", "rate_per_night": None, "total_rate": None},
+            # 3. Zero night price
+            {"name": "Zero Night Hotel", "rate_per_night": {"extracted_lowest": 0}},
+            # 4. Zero total price
+            {"name": "Zero Total Hotel", "rate_per_night": {"extracted_lowest": 2000}, "total_rate": {"extracted_lowest": 0}},
+            # 5. Zero night price with positive total
+            {"name": "Zero Night Pos Total Hotel", "rate_per_night": {"extracted_lowest": 0}, "total_rate": {"extracted_lowest": 4000}},
+            # 6. Invalid non-numeric price string
+            {"name": "Invalid Price Hotel", "rate_per_night": {"lowest": "Free / Contact Hotel"}},
+            # 7. Sold out / N/A
+            {"name": "Sold Out Hotel", "total_rate": {"lowest": "Sold Out"}},
+            # 8. Negative numeric price
+            {"name": "Negative Price Hotel", "rate_per_night": {"extracted_lowest": -500}},
+            # 9. Negative string price
+            {"name": "Negative String Hotel", "rate_per_night": {"lowest": "-₹1,200"}},
+            # 10. Valid hotel to verify filtering preserves valid ones alongside invalid ones
+            {"name": "Valid Hotel", "rate_per_night": {"extracted_lowest": 1800}},
+        ]
+    }
+    envelope = TravelDataEnvelope(
+        source=DataSource.LIVE,
+        engine="google_hotels",
+        query_hash="hash_reject_hotels",
+        data=fixture_data,
+    )
+    hotels = normalize_hotels(envelope)
+    assert len(hotels) == 1
+    assert hotels[0].name == "Valid Hotel"
+    assert hotels[0].price_per_night == Decimal("1800")
+    assert hotels[0].total_price == Decimal("1800")
+
+
+def test_hotel_normalization_invalid_property_rejects():
+    """Verify property with empty, blank, or missing name or non-dict is rejected."""
+    fixture_data = {
+        "properties": [
+            "not a dict",
+            None,
+            {"name": "", "rate_per_night": {"extracted_lowest": 3000}},
+            {"name": "   ", "rate_per_night": {"extracted_lowest": 3000}},
+            {"rate_per_night": {"extracted_lowest": 3000}},  # no name key
+            {"name": "Legit Inn", "rate_per_night": {"extracted_lowest": 3000}},
+        ]
+    }
+    envelope = TravelDataEnvelope(
+        source=DataSource.LIVE,
+        engine="google_hotels",
+        query_hash="hash_invalid_props",
+        data=fixture_data,
+    )
+    hotels = normalize_hotels(envelope)
+    assert len(hotels) == 1
+    assert hotels[0].name == "Legit Inn"
 
 
 # ============================================================================

@@ -38,20 +38,22 @@ class CacheRepository:
     def set_cached_search(self, record: SearchCache) -> SearchCache:
         """Store or update a cached SerpApi search result."""
         if self._client:
+            payload = {
+                "query_hash": record.query_hash,
+                "engine": record.engine,
+                "params_json": record.params_json,
+                "response_data": record.response_data,
+                "expires_at": record.expires_at.isoformat(),
+                "created_at": record.created_at.isoformat(),
+            }
             res = (
                 self._client.table("search_cache")
-                .upsert({
-                    "id": str(record.id),
-                    "query_hash": record.query_hash,
-                    "engine": record.engine,
-                    "params_json": record.params_json,
-                    "response_data": record.response_data,
-                    "expires_at": record.expires_at.isoformat(),
-                    "created_at": record.created_at.isoformat(),
-                })
+                .upsert(payload, on_conflict="query_hash")
                 .execute()
             )
-            return SearchCache.model_validate(res.data[0])
+            if res.data:
+                return SearchCache.model_validate(res.data[0])
+            return record
 
         self._memory_store[record.query_hash] = record
         return record
