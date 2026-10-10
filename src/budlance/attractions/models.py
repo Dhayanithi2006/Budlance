@@ -14,7 +14,10 @@ class Attraction(BaseModel):
     suitable_for: list[str] = Field(default_factory=list)
     typical_time_hours: float
     opening_hours: str
-    entry_fee_inr: int = 0
+    entry_fee_inr: int | None = None
+    is_fee_unknown: bool = False
     description: str
     location: str
     best_time_of_day: str
+    source: str = "CURATED"
+    region: str | None = None

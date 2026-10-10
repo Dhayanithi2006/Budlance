@@ -6,7 +6,12 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from budlance.db.models import BudgetAllocation, ExpenseSource, LedgerCategory, LedgerEntry, utc_now
-from budlance.db.repositories.ledger_repo import LedgerRepository
+from budlance.db.repositories.ledger_repo import (
+    DuplicateLedgerEntryError,
+    LedgerRepository,
+    derive_expense_entry_id,
+    extract_event_tag,
+)
 from budlance.engine.models import BudgetEvaluationResult
 from budlance.ledger.models import LedgerSummary
 
@@ -53,7 +58,10 @@ class VirtualLedgerManager:
         )
         saved_alloc = self.repo.save_budget_allocation(alloc_record)
 
-        # 2. Build initial line-item ledger entries
+        # 2. Clear uncommitted baseline entries before initializing new line items
+        self.repo.clear_planning_entries(trip_id)
+
+        # 3. Build initial line-item ledger entries
         provenance = breakdown.provenance
 
         def _map_source(src_key: str) -> ExpenseSource:
@@ -143,11 +151,53 @@ class VirtualLedgerManager:
             ),
         ]
 
-        saved_entries = []
-        for entry in initial_entries:
-            saved_entries.append(self.repo.add_ledger_entry(entry))
+        saved_entries = self.repo.add_ledger_entries(initial_entries)
 
         return self.get_summary(trip_id)
+
+    def record_spending_batch(
+        self,
+        trip_id: UUID,
+        items: list[tuple[LedgerCategory, Decimal, str, int | None]],
+        source: ExpenseSource = "user_reported",
+    ) -> list[LedgerEntry]:
+        """Record multiple user-reported spending transactions atomically in a single transaction."""
+        if not items:
+            return []
+
+        existing_entries = self.repo.get_ledger_entries(trip_id)
+        cat_spent_running = {}
+        for c in set(item[0] for item in items):
+            cat_matching = [e for e in existing_entries if e.category == c]
+            cat_spent_running[c] = sum(e.spent_amount for e in cat_matching)
+
+        batch_entries = []
+        for category, amount, description, day_number in items:
+            matching = [e for e in existing_entries if e.category == category]
+            cat_allocated = sum(e.allocated_amount for e in matching)
+            cat_spent_running[category] += amount
+            new_remaining = cat_allocated - cat_spent_running[category]
+
+            tag = extract_event_tag(description)
+            entry_id = derive_expense_entry_id(trip_id, tag) if tag else uuid4()
+
+            entry = LedgerEntry(
+                id=entry_id,
+                trip_id=trip_id,
+                category=category,
+                description=description,
+                allocated_amount=Decimal("0.00"),
+                planned_amount=Decimal("0.00"),
+                spent_amount=amount,
+                remaining_amount=new_remaining,
+                actual_amount=amount,
+                day_number=day_number,
+                source=source,
+                created_at=utc_now(),
+            )
+            batch_entries.append(entry)
+
+        return self.repo.add_ledger_entries(batch_entries)
 
     def record_spending(
         self,
@@ -174,8 +224,11 @@ class VirtualLedgerManager:
         new_total_spent = current_cat_spent + amount
         new_remaining = cat_allocated - new_total_spent
 
+        tag = extract_event_tag(description)
+        entry_id = derive_expense_entry_id(trip_id, tag) if tag else uuid4()
+
         new_entry = LedgerEntry(
-            id=uuid4(),
+            id=entry_id,
             trip_id=trip_id,
             category=category,
             description=description,

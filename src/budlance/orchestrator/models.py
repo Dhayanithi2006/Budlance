@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
+from budlance.ai.schemas import TripAction
 from budlance.engine.models import BudgetBreakdown, FeasibilityStatus
 from budlance.itinerary.models import GeneratedItinerary
 from budlance.ledger.models import LedgerSummary
@@ -19,6 +20,7 @@ class OrchestrationResult(BaseModel):
     status: str = Field(
         description="High-level orchestration status: FEASIBLE, NOT_FEASIBLE, CLARIFICATION, RESCUE, ERROR.",
     )
+    action: TripAction | str | None = None
     selected_destination: str | None = None
     feasibility_status: FeasibilityStatus | None = None
     selected_transport: FlightOption | TransitOption | None = None
@@ -34,6 +36,14 @@ class OrchestrationResult(BaseModel):
     is_pass_unlocked: bool = True
     pass_status: str | None = None
     checkout_url: str | None = None
+    search_scope: str | None = Field(
+        default=None,
+        description="Scope of destination search: 'bounded', 'exhaustive', or None for direct queries.",
+    )
+    evaluated_candidates_count: int = Field(
+        default=0,
+        description="Total destination candidates evaluated during candidate screening.",
+    )
     message_text: str = Field(
         default="",
         description="Formatted, user-readable response text ready for Telegram delivery.",

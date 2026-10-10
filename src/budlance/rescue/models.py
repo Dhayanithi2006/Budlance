@@ -25,12 +25,13 @@ class FareGuidance(BaseModel):
 
     mode: str
     reported_price: Decimal
-    estimated_fare: Decimal
-    difference: Decimal
+    estimated_fare: Decimal | None = None
+    difference: Decimal | None = None
     rate_per_km: Decimal | None = None
     distance_km: float | None = None
-    status: str  # "fair", "slightly_high", "significantly_high"
+    status: str  # "fair", "slightly_high", "significantly_high", "unavailable"
     advisory_notes: str
+    is_available: bool = True
 
 
 class RescueResult(BaseModel):
@@ -48,4 +49,7 @@ class RescueResult(BaseModel):
     selected_alternative: PlaceOption | None = None
     updated_itinerary: GeneratedItinerary | None = None
     ledger_summary: LedgerSummary | None = None
+    is_proposal: bool = False
+    pending_proposal: dict[str, Any] | None = None
+    message_text: str | None = None
     error: str | None = None

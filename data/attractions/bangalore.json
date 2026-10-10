@@ -1,0 +1,142 @@
+[
+  {
+    "name": "Lalbagh Botanical Garden",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "friends",
+      "relatives"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "06:00-19:00",
+    "entry_fee_inr": 20,
+    "description": "Sprawling 240-acre botanical garden established by Hyder Ali, housing a 3,000-species plant collection, a 19th-century glass house, and a historic pond with migratory birds.",
+    "location": "Bangalore",
+    "region": "Central Bangalore",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Cubbon Park",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "friends",
+      "relatives"
+    ],
+    "typical_time_hours": 2.0,
+    "opening_hours": "06:00-18:00",
+    "entry_fee_inr": 0,
+    "description": "Leafy 300-acre urban park established in 1870, crisscrossed by tree-lined avenues flanked by heritage buildings, an aquarium, and a well-equipped childrens park.",
+    "location": "Bangalore",
+    "region": "Central Bangalore",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Bangalore Palace",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "friends",
+      "relatives"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "10:00-17:30",
+    "entry_fee_inr": 230,
+    "description": "Tudor-style palace built in 1887 inspired by Windsor Castle, featuring turreted towers, fortified walls, elegant arches, and restored royal chambers filled with antiques and paintings.",
+    "location": "Bangalore",
+    "region": "North Bangalore",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Tipu Sultan Summer Palace",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "friends",
+      "relatives"
+    ],
+    "typical_time_hours": 1.0,
+    "opening_hours": "08:00-17:30",
+    "entry_fee_inr": 15,
+    "description": "Elegant two-storey teakwood palace built in 1791 as summer residence of Tipu Sultan, showcasing intricate carved pillars, exquisite frescoes, and Mysore-style arches.",
+    "location": "Bangalore",
+    "region": "Central Bangalore",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "ISKCON Temple Bangalore",
+    "category": "culture",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "07:00-20:30",
+    "entry_fee_inr": 0,
+    "description": "One of the largest ISKCON temples in the world featuring a grand marble interior, multimedia exhibits on the Bhagavad Gita, a cultural center, and a popular prasadam restaurant.",
+    "location": "Bangalore",
+    "region": "North Bangalore",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "Vidhana Soudha",
+    "category": "architecture",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "friends",
+      "relatives"
+    ],
+    "typical_time_hours": 0.5,
+    "opening_hours": "24h",
+    "entry_fee_inr": 0,
+    "description": "Iconic neo-Dravidian granite secretariat built in 1956 as Karnataka seat of government, best photographed at dusk when its floodlit dome dominates the city skyline.",
+    "location": "Bangalore",
+    "region": "Central Bangalore",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "HAL Aerospace Museum",
+    "category": "family_fun",
+    "suitable_for": [
+      "solo",
+      "family",
+      "friends"
+    ],
+    "typical_time_hours": 2.0,
+    "opening_hours": "09:00-17:00",
+    "entry_fee_inr": 50,
+    "description": "India first aerospace museum, displaying over 50 aircraft from Spitfires to modern jets in an outdoor pavilion alongside scale models, engines, and HAL manufacturing history.",
+    "location": "Bangalore",
+    "region": "East Bangalore",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Bannerghatta National Park",
+    "category": "nature",
+    "suitable_for": [
+      "family",
+      "friends",
+      "couple",
+      "relatives"
+    ],
+    "typical_time_hours": 3.5,
+    "opening_hours": "09:30-17:00",
+    "entry_fee_inr": 80,
+    "description": "Biodiversity hotspot 22 km south of Bangalore with a zoological park, butterfly enclosure, crocodile farm, and glass-cage safari buses through tiger, lion, and bear enclosures.",
+    "location": "Bangalore",
+    "region": "South Bangalore",
+    "best_time_of_day": "morning"
+  }
+]

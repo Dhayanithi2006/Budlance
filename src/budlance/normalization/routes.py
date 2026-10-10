@@ -61,6 +61,8 @@ def normalize_routes(envelope: TravelDataEnvelope) -> list[RouteOption]:
             summary=str(summary) if summary else None,
             source=envelope.source,
             is_fallback=envelope.is_fallback,
+            retrieval_timestamp=envelope.provenance.retrieval_timestamp if envelope.provenance else envelope.created_at,
+            provenance=envelope.provenance,
         )
         results.append(option)
 

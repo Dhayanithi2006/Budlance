@@ -54,3 +54,7 @@ class IntentRepository:
             return None
 
         return self._memory_store.get(trip_id)
+
+    def get_intent_by_trip(self, trip_id: UUID) -> TripIntent | None:
+        """Alias for get_trip_intent."""
+        return self.get_trip_intent(trip_id)

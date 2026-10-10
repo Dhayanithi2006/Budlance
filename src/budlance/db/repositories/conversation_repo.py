@@ -27,41 +27,11 @@ def _chat_key(chat_id: int) -> str:
 
 
 def _intent_to_dict(intent: ParsedTripIntent) -> dict:
-    return {
-        "budget": float(intent.budget) if intent.budget is not None else None,
-        "currency": intent.currency,
-        "people": intent.people,
-        "days": intent.days,
-        "origin": intent.origin,
-        "destination": intent.destination,
-        "interests": intent.interests,
-        "travel_party": intent.travel_party,
-        "traveler_type": intent.traveler_type,
-        "transport_mode": intent.transport_mode,
-        "transport_class": intent.transport_class,
-        "booking_confirmed": intent.booking_confirmed,
-        "pending_action": intent.pending_action,
-        "reconciling_trip_id": intent.reconciling_trip_id,
-    }
+    return intent.model_dump(mode="json")
 
 
 def _dict_to_intent(data: dict) -> ParsedTripIntent:
-    return ParsedTripIntent(
-        budget=Decimal(str(data["budget"])) if data.get("budget") is not None else None,
-        currency=data.get("currency", "INR"),
-        people=data.get("people"),
-        days=data.get("days"),
-        origin=data.get("origin"),
-        destination=data.get("destination"),
-        interests=data.get("interests", []),
-        travel_party=data.get("travel_party") or (data.get("traveler_type") if data.get("traveler_type") in ("solo", "couple", "friends", "family", "relatives") else None),
-        traveler_type=data.get("traveler_type"),
-        transport_mode=data.get("transport_mode"),
-        transport_class=data.get("transport_class"),
-        booking_confirmed=bool(data.get("booking_confirmed", False)),
-        pending_action=data.get("pending_action"),
-        reconciling_trip_id=data.get("reconciling_trip_id"),
-    )
+    return ParsedTripIntent.model_validate(data)
 
 
 class ConversationStateRepository:
@@ -164,6 +134,11 @@ class ConversationStateRepository:
         trip_id: UUID,
         planned_budget: Decimal | None = None,
         completion_reason: str | None = None,
+        origin: str | None = None,
+        destination: str | None = None,
+        people: int | None = None,
+        days: int | None = None,
+        currency: str = "INR",
     ) -> None:
         """Persist explicit pending LOG_ACTUAL_SPEND state for trip reconciliation."""
         reconcile_intent = ParsedTripIntent(
@@ -171,6 +146,11 @@ class ConversationStateRepository:
             reconciling_trip_id=str(trip_id),
             budget=planned_budget,
             completion_reason=completion_reason,
+            origin=origin,
+            destination=destination,
+            people=people,
+            days=days,
+            currency=currency,
         )
         self.save_pending_intent(chat_id, reconcile_intent)
 
@@ -178,6 +158,8 @@ class ConversationStateRepository:
         """Check if conversation is awaiting final reconciliation response."""
         intent = self.get_pending_intent(chat_id)
         return bool(intent and intent.pending_action == "LOG_ACTUAL_SPEND")
+
+    has_pending_reconciliation = is_reconciling
 
     def get_reconciling_trip_id(self, chat_id: int) -> UUID | None:
         """Retrieve trip ID undergoing reconciliation, if any."""
@@ -188,3 +170,28 @@ class ConversationStateRepository:
             except (ValueError, TypeError):
                 return None
         return None
+
+    def save_pending_rescue_proposal(self, chat_id: int, trip_id: UUID, proposal: dict) -> None:
+        """Persist explicit pending CONFIRM_RESCUE proposal state."""
+        rescue_intent = ParsedTripIntent(
+            pending_action="CONFIRM_RESCUE",
+            reconciling_trip_id=str(trip_id),
+            rescue_detail=json.dumps(proposal),
+        )
+        self.save_pending_intent(chat_id, rescue_intent)
+
+    def get_pending_rescue_proposal(self, chat_id: int) -> dict | None:
+        """Retrieve active pending rescue proposal, if any."""
+        intent = self.get_pending_intent(chat_id)
+        if intent and intent.pending_action == "CONFIRM_RESCUE" and intent.rescue_detail:
+            try:
+                return json.loads(intent.rescue_detail)
+            except Exception:
+                return None
+        return None
+
+    def clear_pending_rescue_proposal(self, chat_id: int) -> None:
+        """Clear pending rescue proposal state."""
+        intent = self.get_pending_intent(chat_id)
+        if intent and intent.pending_action == "CONFIRM_RESCUE":
+            self.clear_pending_intent(chat_id)

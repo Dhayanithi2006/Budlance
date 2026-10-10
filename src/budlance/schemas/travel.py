@@ -4,6 +4,7 @@ These models decouple downstream planning and the Reverse-Budget Engine
 from external SerpApi and static JSON response structures.
 """
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -36,8 +37,11 @@ class FlightOption(BaseModel):
     return_flight_number: str | None = None
     return_departure_time: str | None = None
     return_arrival_time: str | None = None
+    price_scope: str = "total"  # total party price vs per_passenger
     source: DataSource = DataSource.LIVE
     is_fallback: bool = False
+    retrieval_timestamp: datetime | None = None
+    provenance: Any | None = None
 
 
 class HotelOption(BaseModel):
@@ -54,8 +58,16 @@ class HotelOption(BaseModel):
     rating: float | None = None
     review_count: int | None = None
     deep_link: str | None = None
+    check_in_date: str | None = None
+    check_out_date: str | None = None
+    nights: int | None = None
+    price_scope: str = "total_stay"
+    amenities: list[str] = Field(default_factory=list)
+    property_token: str | None = None
     source: DataSource = DataSource.LIVE
     is_fallback: bool = False
+    retrieval_timestamp: datetime | None = None
+    provenance: Any | None = None
 
 
 class PlaceOption(BaseModel):
@@ -70,8 +82,20 @@ class PlaceOption(BaseModel):
     review_count: int | None = None
     price_level: str | None = None  # coarse indicator like "₹₹" or "budget", never claimed as exact menu price
     estimated_cost: Decimal = Decimal("0.00")
+    entry_fee_inr: Decimal | None = None
+    is_fee_unknown: bool = False
+    description: str = ""
+    best_time_of_day: str = "morning"
+    typical_time_hours: float = 2.0
+    place_id: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    opening_hours: str | None = None
+    link: str | None = None
     source: DataSource = DataSource.LIVE
     is_fallback: bool = False
+    retrieval_timestamp: datetime | None = None
+    provenance: Any | None = None
 
 
 class RouteOption(BaseModel):
@@ -86,6 +110,8 @@ class RouteOption(BaseModel):
     summary: str | None = None
     source: DataSource = DataSource.LIVE
     is_fallback: bool = False
+    retrieval_timestamp: datetime | None = None
+    provenance: Any | None = None
 
 
 class TransitOption(BaseModel):
@@ -104,6 +130,8 @@ class TransitOption(BaseModel):
     class_or_type: str | None = None  # e.g., "3A", "SL", "AC Sleeper"
     source: DataSource = DataSource.FALLBACK
     is_fallback: bool = True
+    retrieval_timestamp: datetime | None = None
+    provenance: Any | None = None
 
 
 class FoodEstimate(BaseModel):
@@ -127,6 +155,30 @@ class LocalTransitEstimate(BaseModel):
     rate_per_km: Decimal | None = None
     distance_km: float | None = None
     days: int | None = None
-    total_cost: Decimal
+    total_cost: Decimal | None = None
     currency: str = "INR"
     source: DataSource = DataSource.ESTIMATED
+    is_available: bool = True
+    basis: str | None = None
+    limitations: str | None = None
+
+
+class EventOption(BaseModel):
+    """Normalized live seasonal event or activity candidate from Google Search events_results."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID = Field(default_factory=uuid4)
+    name: str
+    date_str: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    venue: str | None = None
+    address: str | None = None
+    link: str | None = None
+    description: str | None = None
+    ticket_info: str | None = None
+    is_verified: bool = True
+    source: DataSource = DataSource.LIVE
+    is_fallback: bool = False
+    retrieval_timestamp: datetime | None = None
+    provenance: Any | None = None

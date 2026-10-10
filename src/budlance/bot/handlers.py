@@ -8,7 +8,7 @@ Architectural Boundary:
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from budlance.orchestrator.formatter import split_telegram_message
+from budlance.orchestrator.formatter import split_telegram_message, to_telegram_html
 from budlance.orchestrator.orchestrator import BudlanceOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -36,15 +36,15 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     welcome_text = (
-        "👋 *Welcome to Budlance — reverse-budget AI travel agent!* ✈️\n\n"
+        "👋 <b>Welcome to Budlance — reverse-budget AI travel agent!</b> ✈️\n\n"
         "Tell me your budget, number of travelers, trip duration, and departure city. "
         "Budlance will discover, calculate, and construct a complete trip that strictly fits your budget.\n\n"
-        "💡 *Example:*\n"
-        "`Plan a trip from Mumbai for 2 people, 3 days, with budget ₹20,000`\n\n"
-        "✨ *In-Trip Rescue:* If you are currently traveling and hit bad weather, closures, or unfair fares, "
-        "simply message me here (e.g. _'It's raining at the beach'_ or _'The auto driver is asking ₹500'_)."
+        "💡 <b>Example:</b>\n"
+        "<code>Plan a trip from Mumbai for 2 people, 3 days, with budget ₹20,000</code>\n\n"
+        "✨ <b>In-Trip Rescue:</b> If you are currently traveling and hit bad weather, closures, or unfair fares, "
+        "simply message me here (e.g. <i>'It\'s raining at the beach'</i> or <i>'The auto driver is asking ₹500'</i>)."
     )
-    await update.effective_message.reply_text(welcome_text, parse_mode="Markdown")
+    await update.effective_message.reply_text(welcome_text, parse_mode="HTML")
     logger.info("Handled /start command for chat_id=%s", update.effective_chat.id if update.effective_chat else "unknown")
 
 
@@ -59,6 +59,13 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     username = update.effective_user.username if update.effective_user else None
     first_name = update.effective_user.first_name if update.effective_user else None
 
+    event_id: str | None = None
+    if update.update_id is not None:
+        msg_id = update.effective_message.message_id if update.effective_message else 0
+        event_id = f"tg_upd_{update.update_id}_msg_{msg_id}"
+    elif update.effective_message and update.effective_message.message_id is not None:
+        event_id = f"tg_msg_{update.effective_message.message_id}"
+
     orchestrator = get_orchestrator()
     result = await orchestrator.handle_user_message(
         telegram_user_id=user_id,
@@ -66,14 +73,16 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         message=text,
         username=username,
         first_name=first_name,
+        event_id=event_id,
     )
 
     chunks = split_telegram_message(result.message_text)
     for chunk in chunks:
+        html_chunk = to_telegram_html(chunk)
         try:
-            await update.effective_message.reply_text(chunk, parse_mode="Markdown")
+            await update.effective_message.reply_text(html_chunk, parse_mode="HTML")
         except Exception as exc:
-            logger.warning("Markdown formatting rejected by Telegram (%s). Falling back to plain text.", exc)
+            logger.warning("HTML formatting rejected by Telegram (%s). Falling back to plain text.", exc)
             await update.effective_message.reply_text(chunk)
 
     logger.info(

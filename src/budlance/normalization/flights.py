@@ -43,32 +43,51 @@ def build_safe_flight_search_url(
     return_date: str | None = None,
     people: int = 1,
     travel_class: str | None = None,
+    booking_token: str | None = None,
 ) -> str:
-    """Build a valid, URL-encoded round-trip Google Flights search link.
+    """Build a valid, URL-encoded round-trip Google Flights booking/search link.
 
     Guarantees:
     - Never generates malformed queries like 'Flights to From from Chennai'.
     - If route is invalid (missing or stopword like 'From' or 'None'), returns safe generic portal.
-    - Explicitly encodes round-trip route query parameters.
+    - If a booking_token is provided:
+        - If already an http(s) URL, returns it directly.
+        - Otherwise, attaches booking_token parameter.
+    - Otherwise uses IATA codes and real dates in format:
+        q="Flights to {dest_iata} from {orig_iata} on {outbound_date} through {return_date}"
+    - Never leaves unfilled placeholder tokens (e.g. {X}, {DATE}, None, null).
     """
     if not validate_flight_route(origin, destination):
         return "https://www.google.com/travel/flights"
 
-    clean_origin = str(origin).strip().title()
-    clean_destination = str(destination).strip().title()
+    # 1. Use booking_token if already present
+    if booking_token and str(booking_token).strip():
+        tok = str(booking_token).strip()
+        if tok.startswith(("http://", "https://")):
+            return tok
+        return f"https://www.google.com/travel/flights?booking_token={urllib.parse.quote_plus(tok)}"
 
-    # Preserving round-trip semantics in query
-    query_parts = [f"Flights from {clean_origin} to {clean_destination} round trip"]
-    if outbound_date:
-        query_parts.append(f"departing {outbound_date}")
-    if return_date:
-        query_parts.append(f"returning {return_date}")
-    if people > 1:
-        query_parts.append(f"for {people} passengers")
-    if travel_class and travel_class.lower() in ("business", "first", "premium_economy"):
-        query_parts.append(f"in {travel_class.lower()}")
+    from budlance.serpapi.location import resolve_iata
 
-    query_str = " ".join(query_parts)
+    clean_origin = str(origin).strip()
+    clean_destination = str(destination).strip()
+
+    orig_iata = resolve_iata(clean_origin)
+    if not orig_iata:
+        orig_iata = clean_origin.upper() if (len(clean_origin) == 3 and clean_origin.isalpha()) else clean_origin.title()
+
+    dest_iata = resolve_iata(clean_destination)
+    if not dest_iata:
+        dest_iata = clean_destination.upper() if (len(clean_destination) == 3 and clean_destination.isalpha()) else clean_destination.title()
+
+    # Form: q="Flights to X from Y on DATE through DATE"
+    if outbound_date and return_date:
+        query_str = f"Flights to {dest_iata} from {orig_iata} on {outbound_date} through {return_date}"
+    elif outbound_date:
+        query_str = f"Flights to {dest_iata} from {orig_iata} on {outbound_date}"
+    else:
+        query_str = f"Flights to {dest_iata} from {orig_iata}"
+
     encoded_query = urllib.parse.quote_plus(query_str)
     return f"https://www.google.com/travel/flights?q={encoded_query}"
 
@@ -148,6 +167,9 @@ def normalize_flights(envelope: TravelDataEnvelope) -> list[FlightOption]:
         flight_groups.extend(data["best_flights"])
     if isinstance(data.get("other_flights"), list):
         flight_groups.extend(data["other_flights"])
+    if isinstance(data.get("flights"), list):
+        flight_groups.extend(data["flights"])
+
 
     for item in flight_groups:
         if not isinstance(item, dict):
@@ -229,6 +251,17 @@ def normalize_flights(envelope: TravelDataEnvelope) -> list[FlightOption]:
                 if opt["direct_url"]:
                     deep_link = opt["direct_url"]
                     is_exact_booking = True
+                elif opt.get("has_post_data") and opt.get("booking_request"):
+                    import hashlib
+                    from budlance.config import get_settings
+                    from budlance.db.repositories.cache_repo import CacheRepository
+                    token_src = raw_token or raw_link or flight_number or airline
+                    b_id = hashlib.sha256(str(token_src).encode("utf-8")).hexdigest()[:12]
+                    CacheRepository().store_booking_request(b_id, opt["booking_request"])
+                    base_url = get_settings().effective_public_base_url
+                    deep_link = f"{base_url}/book/{b_id}"
+                    is_exact_booking = True
+
 
         # Fallback to direct link or token (if token is a valid URL as used in mock fixtures)
         if not deep_link:
@@ -249,6 +282,7 @@ def normalize_flights(envelope: TravelDataEnvelope) -> list[FlightOption]:
             arrival_time=arr_time,
             price=price,
             currency=currency,
+            price_scope="quote",
             duration_minutes=int(duration_mins) if duration_mins is not None else None,
             stops=stops,
             deep_link=deep_link,
@@ -263,6 +297,8 @@ def normalize_flights(envelope: TravelDataEnvelope) -> list[FlightOption]:
             return_arrival_time=ret_arr_time,
             source=envelope.source,
             is_fallback=envelope.is_fallback,
+            retrieval_timestamp=envelope.provenance.retrieval_timestamp if envelope.provenance else envelope.created_at,
+            provenance=envelope.provenance,
         )
         results.append(option)
 

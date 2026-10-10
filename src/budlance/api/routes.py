@@ -4,9 +4,12 @@ Business logic is strictly decoupled and will be managed by the Orchestrator
 in subsequent implementation phases.
 """
 
+import html
 import logging
+import urllib.parse
 from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
 from telegram import Update
 from budlance import __version__
 from budlance.config import get_settings
@@ -100,8 +103,10 @@ def set_payment_service(service: PaymentService | None) -> None:
 @router.post("/payment/webhook/{provider}", tags=["Payment"])
 async def payment_webhook(provider: str, request: Request) -> dict[str, Any]:
     """Receive payment webhook notifications from Razorpay, Stripe, or test rails."""
+    raw_body = await request.body()
     try:
-        payload = await request.json()
+        import json
+        payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -118,12 +123,13 @@ async def payment_webhook(provider: str, request: Request) -> dict[str, Any]:
         provider=provider,
         payload=payload,
         signature=sig_header,
+        raw_body=raw_body,
     )
 
     if not res.success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=res.message or "Webhook verification failed.",
+            detail=res.error_message or res.error or "Webhook verification failed.",
         )
 
     return {
@@ -150,7 +156,7 @@ async def get_pass_status(trip_id: UUID) -> dict[str, Any]:
         "status": pass_rec.status,
         "amount": float(pass_rec.amount),
         "currency": pass_rec.currency,
-        "unlocked": (pass_rec.status == "PAID"),
+        "unlocked": pass_rec.is_unlocked,
         "provider": pass_rec.provider,
         "payment_reference": pass_rec.payment_reference,
     }
@@ -159,6 +165,14 @@ async def get_pass_status(trip_id: UUID) -> dict[str, Any]:
 @router.post("/payment/demo_bypass", tags=["Payment"])
 async def demo_bypass(request: Request) -> dict[str, Any]:
     """Demo / evaluator bypass endpoint to unlock a Trip Pass without actual payment."""
+    from budlance.config import get_settings
+    settings = get_settings()
+    if settings.is_production:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo bypass is disabled in production environments.",
+        )
+
     try:
         body = await request.json()
     except Exception as exc:
@@ -197,6 +211,69 @@ async def demo_bypass(request: Request) -> dict[str, Any]:
         "ok": True,
         "status": pass_rec.status,
         "trip_id": str(pass_rec.trip_id),
-        "unlocked": True,
+        "unlocked": pass_rec.is_unlocked,
         "message": "Trip Pass successfully unlocked via demo bypass.",
     }
+
+
+@router.get("/book/{booking_id}", response_class=HTMLResponse, tags=["Booking"])
+async def booking_relay(booking_id: str):
+    """Booking relay endpoint that looks up stored booking_request and returns an auto-submitting POST form HTML."""
+    from budlance.db.repositories.cache_repo import CacheRepository
+
+    repo = CacheRepository()
+    booking_req = repo.get_booking_request(booking_id)
+    if not booking_req or not isinstance(booking_req, dict):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Booking session expired or not found. Please search again on Google Flights.",
+        )
+
+    target_url = booking_req.get("url")
+    if not target_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid booking request: target URL missing.",
+        )
+
+    post_data = booking_req.get("post_data")
+    form_inputs: list[str] = []
+    if isinstance(post_data, dict):
+        for k, v in post_data.items():
+            form_inputs.append(
+                f'<input type="hidden" name="{html.escape(str(k))}" value="{html.escape(str(v))}">'
+            )
+    elif isinstance(post_data, str) and post_data.strip():
+        parsed_qsl = urllib.parse.parse_qsl(post_data, keep_blank_values=True)
+        if parsed_qsl:
+            for k, v in parsed_qsl:
+                form_inputs.append(
+                    f'<input type="hidden" name="{html.escape(str(k))}" value="{html.escape(str(v))}">'
+                )
+        else:
+            form_inputs.append(
+                f'<input type="hidden" name="payload" value="{html.escape(post_data)}">'
+            )
+
+    inputs_html = "\n        ".join(form_inputs)
+    html_page = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Redirecting to Booking...</title>
+</head>
+<body>
+    <p>Redirecting to airline booking...</p>
+    <form id="bookForm" method="POST" action="{html.escape(str(target_url))}">
+        {inputs_html}
+        <noscript>
+            <button type="submit">Continue to Booking</button>
+        </noscript>
+    </form>
+    <script>
+        document.getElementById('bookForm').submit();
+    </script>
+</body>
+</html>"""
+    return HTMLResponse(content=html_page)
+

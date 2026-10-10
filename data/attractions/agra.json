@@ -1,0 +1,89 @@
+[
+  {
+    "name": "Taj Mahal",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "06:00-18:00 (Closed Fridays)",
+    "entry_fee_inr": 250,
+    "description": "World-renowned white marble mausoleum built by Mughal emperor Shah Jahan, a UNESCO World Heritage site and masterpiece of Mughal architecture.",
+    "location": "Agra",
+    "region": "Taj Precinct",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Agra Fort",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "06:00-18:00",
+    "entry_fee_inr": 50,
+    "description": "Massive 16th-century red sandstone fortress that served as the main residence of Mughal emperors, containing the Jahangiri Mahal, Diwan-i-Khas, and Sheesh Mahal.",
+    "location": "Agra",
+    "region": "Taj Precinct",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Mehtab Bagh Sunset Viewpoint",
+    "category": "scenic",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "06:00-18:00",
+    "entry_fee_inr": 25,
+    "description": "Charbagh complex situated across the Yamuna River directly aligned with the Taj Mahal, providing unforgettable sunset views without the crowds.",
+    "location": "Agra",
+    "region": "Taj Precinct",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "Fatehpur Sikri Royal Complex",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "06:00-18:00",
+    "entry_fee_inr": 50,
+    "description": "Akbar's 16th-century red sandstone fortified capital city featuring the monumental Buland Darwaza and the Tomb of Salim Chishti.",
+    "location": "Agra",
+    "region": "Fatehpur Sikri",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Sadar Bazaar & Petha Tasting Walk",
+    "category": "food",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "16:00-22:00",
+    "entry_fee_inr": 0,
+    "description": "Bustling Agra market street famous for authentic handcrafted marble souvenirs and classic Agra Petha varieties (Angoori, Kesar, and Paan petha).",
+    "location": "Agra",
+    "region": "Central Agra",
+    "best_time_of_day": "evening"
+  }
+]

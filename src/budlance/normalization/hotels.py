@@ -20,13 +20,24 @@ def _extract_hotel_class(raw_class: Any) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def normalize_hotels(envelope: TravelDataEnvelope) -> list[HotelOption]:
+from budlance.schemas.dates import calculate_stay_nights
+
+
+def normalize_hotels(
+    envelope: TravelDataEnvelope,
+    nights: int = 1,
+    check_in: str | None = None,
+    check_out: str | None = None,
+) -> list[HotelOption]:
     """Parse Google Hotels data envelope into a list of normalized HotelOption models.
 
     Strict validation rules:
     - Valid property: Must be a dict and have a non-empty name.
     - Valid positive price: Must have strictly positive (> 0) price_per_night and total_price.
     - Missing / invalid / zero / negative price -> reject property.
+    - If check_in and check_out are provided, nights is strictly derived via calculate_stay_nights.
+    - If total_rate is provided, use total_rate.
+    - If only rate_per_night exists, multiply by required number of nights.
     """
     results: list[HotelOption] = []
     data = envelope.data
@@ -38,6 +49,11 @@ def normalize_hotels(envelope: TravelDataEnvelope) -> list[HotelOption]:
     properties = data.get("properties") or []
     if not isinstance(properties, list):
         return results
+
+    if check_in and check_out:
+        num_nights = calculate_stay_nights(check_in, check_out)
+    else:
+        num_nights = max(1, nights)
 
     for prop in properties:
         if not isinstance(prop, dict):
@@ -116,10 +132,10 @@ def normalize_hotels(envelope: TravelDataEnvelope) -> list[HotelOption]:
 
         # Infer complementary price if only one was provided
         if price_per_night is None and total_price is not None:
-            price_per_night = total_price
+            price_per_night = round(total_price / Decimal(num_nights), 2)
             currency = total_currency
         elif total_price is None and price_per_night is not None:
-            total_price = price_per_night
+            total_price = price_per_night * Decimal(num_nights)
             currency = night_currency
         else:
             currency = night_currency or total_currency or "INR"
@@ -144,6 +160,9 @@ def normalize_hotels(envelope: TravelDataEnvelope) -> list[HotelOption]:
         rating = prop.get("overall_rating") or prop.get("rating")
         review_count = prop.get("reviews")
         link = prop.get("link")
+        raw_amenities = prop.get("amenities") or prop.get("popular_amenities")
+        amenities = [str(a) for a in raw_amenities] if isinstance(raw_amenities, list) else []
+        property_token = prop.get("property_token") or prop.get("hotel_id") or prop.get("id")
 
         option = HotelOption(
             name=str(name).strip(),
@@ -152,11 +171,19 @@ def normalize_hotels(envelope: TravelDataEnvelope) -> list[HotelOption]:
             price_per_night=price_per_night,
             total_price=total_price,
             currency=currency,
+            price_scope="quote",
             rating=float(rating) if rating is not None else None,
             review_count=int(review_count) if review_count is not None else None,
             deep_link=str(link).strip() if link else None,
             source=envelope.source,
             is_fallback=envelope.is_fallback,
+            check_in_date=str(check_in) if check_in else None,
+            check_out_date=str(check_out) if check_out else None,
+            nights=num_nights,
+            amenities=amenities,
+            property_token=str(property_token) if property_token else None,
+            retrieval_timestamp=envelope.provenance.retrieval_timestamp if envelope.provenance else envelope.created_at,
+            provenance=envelope.provenance,
         )
         results.append(option)
 

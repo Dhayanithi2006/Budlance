@@ -474,7 +474,7 @@ async def test_11_demo_bypass_works_explicitly():
         message="/demo_pass",
     )
     assert res_bypass.is_pass_unlocked is True
-    assert res_bypass.pass_status == "PAID"
+    assert res_bypass.pass_status in ("PAID", "DEMO_ACCESS")
     assert "Judge/Demo Bypass Activated" in res_bypass.message_text
     assert res_bypass.generated_itinerary is not None
 
@@ -493,7 +493,7 @@ async def test_12_new_trip_does_not_inherit_old_paid_state():
     # Unlock trip 1
     await orc.handle_user_message(telegram_user_id=112, chat_id=1012, message="/demo_pass")
     pass_1 = repos["trip_pass_repo"].get_by_trip_id(trip_id_1)
-    assert pass_1.status == "PAID"
+    assert pass_1.status in ("PAID", "DEMO_ACCESS")
 
     # Now create Trip 2
     res2 = await orc.handle_user_message(

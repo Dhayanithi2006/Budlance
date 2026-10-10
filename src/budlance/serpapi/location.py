@@ -107,6 +107,9 @@ def resolve_iata(city: str) -> str | None:
     result = _CITY_TO_IATA.get(key)
     if result is None and key not in _CITY_TO_IATA:
         logger.debug("[LOCATION] No IATA mapping for city=%r. Live flight search will be skipped.", city)
+    # If the input is already a 3-letter IATA code known in the mapping values:
+    if len(key) == 3 and key.upper() in [v for v in _CITY_TO_IATA.values() if v]:
+        return key.upper()
     return result
 
 
@@ -132,3 +135,26 @@ def resolve_places_query(city: str, interest: str | None = None) -> str:
             return f"theme parks in {clean}"
         return f"{int_clean} in {clean}"
     return f"places attractions in {clean}"
+
+
+def resolve_food_query(city: str, interest: str | None = None) -> str:
+    """Build a Google Maps 'q' parameter value for live food and restaurant discovery.
+
+    Uses user food interest or default local cuisine query without hardcoding restaurant names.
+    """
+    clean = city.strip().title() if city else "Unknown"
+    if interest and str(interest).strip():
+        int_clean = str(interest).strip().lower()
+        if any(w in int_clean for w in ("food", "cuisine", "restaurant", "seafood", "dining", "cafe")):
+            return f"{int_clean} in {clean}"
+        return f"{int_clean} food in {clean}"
+    return f"local food restaurants in {clean}"
+
+
+def resolve_events_query(city: str, date_or_season: str | None = None) -> str:
+    """Build a Google Search 'q' parameter value for live events discovery using events_results."""
+    clean = city.strip().title() if city else "Unknown"
+    if date_or_season and str(date_or_season).strip():
+        return f"events in {clean} {str(date_or_season).strip()}"
+    return f"events in {clean}"
+

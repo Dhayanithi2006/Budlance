@@ -8,6 +8,7 @@
     "entry_fee_inr": 0,
     "description": "Mahatma Gandhi's historic headquarters on the banks of the Sabarmati River, preserving his living quarters and independence movement archives.",
     "location": "Ahmedabad",
+    "region": "Ahmedabad Central",
     "best_time_of_day": "morning"
   },
   {
@@ -19,6 +20,7 @@
     "entry_fee_inr": 0,
     "description": "Intricately carved 15th-century five-story Solanki-style stepwell with subterranean pavilions and ornate pillars.",
     "location": "Gandhinagar",
+    "region": "Gandhinagar",
     "best_time_of_day": "morning"
   },
   {
@@ -30,6 +32,7 @@
     "entry_fee_inr": 0,
     "description": "Famed 16th-century mosque renowned worldwide for its delicately carved marble latticework jali depicting the Tree of Life.",
     "location": "Ahmedabad",
+    "region": "Ahmedabad Central",
     "best_time_of_day": "afternoon"
   },
   {
@@ -41,6 +44,7 @@
     "entry_fee_inr": 0,
     "description": "Premier textile museum housing an exquisite collection of historic Indian fabrics, court textiles, and ceremonial tapestries.",
     "location": "Ahmedabad",
+    "region": "Ahmedabad Central",
     "best_time_of_day": "morning"
   },
   {
@@ -52,6 +56,7 @@
     "entry_fee_inr": 0,
     "description": "Grand pink sandstone spiritual complex with manicured thematic gardens, cultural exhibition halls, and musical water shows.",
     "location": "Gandhinagar",
+    "region": "Gandhinagar",
     "best_time_of_day": "afternoon"
   },
   {
@@ -63,6 +68,7 @@
     "entry_fee_inr": 25,
     "description": "Vibrant lakefront promenade featuring the historic Nagina Wadi island palace, toy train, tethered hot-air balloon, and evening illumination.",
     "location": "Ahmedabad",
+    "region": "Ahmedabad East",
     "best_time_of_day": "evening"
   },
   {
@@ -74,6 +80,7 @@
     "entry_fee_inr": 50,
     "description": "Sprawling educational center offering an aquatic gallery with shark tunnels, robotics park, planetarium, and interactive physics pavilions.",
     "location": "Ahmedabad",
+    "region": "Ahmedabad West",
     "best_time_of_day": "afternoon"
   },
   {
@@ -85,6 +92,7 @@
     "entry_fee_inr": 25,
     "description": "Ancient 11th-century Solanki architectural marvel dedicated to the Sun God Surya, situated beside the step-terraced Surya Kund water tank.",
     "location": "Mehsana",
+    "region": "North Gujarat",
     "best_time_of_day": "morning"
   },
   {
@@ -96,6 +104,7 @@
     "entry_fee_inr": 40,
     "description": "UNESCO World Heritage stepwell built as an inverted temple with seven subterranean levels adorned with over 500 principal sculptures.",
     "location": "Patan",
+    "region": "North Gujarat",
     "best_time_of_day": "morning"
   }
 ]

@@ -107,6 +107,11 @@ def is_skip_response(text: str) -> bool:
 def is_new_trip_message(text: str) -> bool:
     """Detect if text is an explicit new trip planning request."""
     clean = text.lower().strip()
+    if any(p in clean for p in (
+        "add ", "one more place", "places i want to visit", "place i want to visit", "to my plan",
+        "move the trip", "shift the trip", "change dates", "keep everything else",
+    )):
+        return False
     signals = [
         "plan a trip", "plan another trip", "new trip", "start over",
         "trip to", "want to visit", "want to go", "travel to",
@@ -183,6 +188,11 @@ class TripCompletionHandler:
             trip_id=active_trip.id,
             planned_budget=active_trip.budget_total,
             completion_reason=completion_reason,
+            origin=active_trip.origin,
+            destination=active_trip.destination,
+            people=active_trip.people_count,
+            days=active_trip.duration_days,
+            currency=active_trip.currency,
         )
 
         prompt_text = (
@@ -280,12 +290,40 @@ class TripCompletionHandler:
         else:
             diff_line = "Difference: ₹0 on planned budget"
 
-        summary = (
-            f"🎉 Trip completed and reconciled!\n\n"
-            f"Planned budget: ₹{format_currency_amount(active_trip.budget_total)}\n"
-            f"Recorded actual spend: ₹{format_currency_amount(final_actual_spent)}\n"
-            f"{diff_line}"
-        )
+        cat_spent: dict[str, Decimal] = {}
+        for e in all_entries:
+            if e.actual_amount is not None and e.actual_amount > Decimal("0.00"):
+                cat_spent[e.category] = cat_spent.get(e.category, Decimal("0.00")) + e.actual_amount
+
+        ledger_summary = None
+        unspent_reserve = Decimal("0.00")
+        try:
+            ledger_summary = self.ledger_manager.get_summary(active_trip.id)
+            unspent_reserve = getattr(ledger_summary, "rescue_reserve_remaining", None)
+            if unspent_reserve is None and ledger_summary and getattr(ledger_summary, "allocation", None):
+                unspent_reserve = getattr(ledger_summary.allocation, "rescue_fund_allocated", Decimal("0.00"))
+        except Exception:
+            pass
+        if unspent_reserve is None:
+            unspent_reserve = Decimal("0.00")
+
+        summary_parts = [
+            f"🎉 Trip completed and reconciled!\n",
+            f"Planned budget: ₹{format_currency_amount(active_trip.budget_total)}",
+            f"Recorded actual spend: ₹{format_currency_amount(final_actual_spent)}",
+            f"{diff_line}",
+        ]
+        if cat_spent:
+            summary_parts.append("\n📊 *Actual Spending by Category:*")
+            for cat, amt in cat_spent.items():
+                cat_label = cat.replace("_", " ").title()
+                summary_parts.append(f"• {cat_label}: ₹{format_currency_amount(amt)}")
+
+        if unspent_reserve > Decimal("0.00"):
+            summary_parts.append(f"\n🛡️ *Unspent Reserve:* ₹{format_currency_amount(unspent_reserve)}")
+
+        summary_parts.append("\nℹ️ *Disclosure:* Recorded actual spending is user-reported. Days without recorded expenses are not assumed to be zero.")
+        summary = "\n".join(summary_parts)
 
         return CompletionResult(
             trip_id=active_trip.id,
@@ -343,7 +381,8 @@ class TripCompletionHandler:
             f"🎉 Trip completed!\n\n"
             f"Planned budget: ₹{format_currency_amount(active_trip.budget_total)}\n"
             f"Recorded actual spend: ₹{format_currency_amount(recorded_actual)}\n"
-            f"Final reconciliation: skipped"
+            f"Final reconciliation: skipped\n\n"
+            f"ℹ️ *Disclosure:* Recorded actual spending is user-reported. Budlance preserves recorded amounts without assuming unrecorded items were zero."
         )
 
         return CompletionResult(

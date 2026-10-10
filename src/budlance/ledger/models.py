@@ -18,3 +18,18 @@ class LedgerSummary(BaseModel):
     total_remaining: Decimal
     allocation: BudgetAllocation
     entries: list[LedgerEntry] = Field(default_factory=list)
+
+    @property
+    def rescue_reserve_remaining(self) -> Decimal:
+        """Calculate unspent rescue reserve balance."""
+        if not self.allocation:
+            return Decimal("0.00")
+        fund = getattr(self.allocation, "rescue_fund_allocated", None) or getattr(self.allocation, "rescue_reserve", Decimal("0.00"))
+        if not fund:
+            return Decimal("0.00")
+        rescue_spent = sum(
+            e.actual_amount or Decimal("0.00")
+            for e in self.entries
+            if e.category in ("rescue", "contingency")
+        )
+        return max(Decimal("0.00"), fund - rescue_spent)

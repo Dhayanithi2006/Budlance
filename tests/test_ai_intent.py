@@ -13,7 +13,7 @@ from budlance.ai.exceptions import (
     OpenRouterResponseError,
     OpenRouterValidationError,
 )
-from budlance.ai.schemas import ParsedRescueIntent, ParsedTripIntent
+from budlance.ai.schemas import ParsedRescueIntent, ParsedTripIntent, TripAction
 from budlance.ai.service import AIIntentService
 from budlance.db.repositories.intent_repo import IntentRepository
 
@@ -409,3 +409,102 @@ async def test_invalid_openrouter_json_does_not_produce_silent_fabricated_intent
     service = AIIntentService(client=mock_client, use_mock=False)
     with pytest.raises(OpenRouterValidationError):
         await service.parse_trip_intent("test")
+
+
+def test_mock_indian_lakh_and_crore_budget_extraction():
+    """Verify Indian currency notation (5,00,000, 1,50,000, 5 lakh, 5.5 lakhs, 1 crore) in fallback parser."""
+    service = AIIntentService(use_mock=True)
+
+    intent1 = service._mock_parse_trip_intent("Rs 5,00,000 for solo trip from Chennai for 7 days")
+    assert intent1.budget == Decimal("500000")
+    assert intent1.action == TripAction.NEW_TRIP
+
+    intent2 = service._mock_parse_trip_intent("budget 1,50,000 for 5 days to Goa")
+    assert intent2.budget == Decimal("150000")
+
+    intent3 = service._mock_parse_trip_intent("5 lakhs budget for 3 days from Mumbai")
+    assert intent3.budget == Decimal("500000")
+
+    intent4 = service._mock_parse_trip_intent("3.5 lac budget for 2 people")
+    assert intent4.budget == Decimal("350000")
+
+
+def test_mock_trip_planning_spend_time_does_not_trigger_log_expense():
+    """Colloquial 'spend more time in nature' during trip planning must NOT be misclassified as LOG_EXPENSE."""
+    service = AIIntentService(use_mock=True)
+    msg = (
+        "I have around Rs 5,00,000 for a solo trip. I don't have a destination fixed yet. "
+        "I really want somewhere with calm nature, cool climate, very fresh air. "
+        "I would rather spend more time in nature, local food and quiet places. "
+        "I'm starting from Chennai. I can travel for around 7 to 10 days."
+    )
+    intent = service._mock_parse_trip_intent(msg)
+    assert intent.action == TripAction.NEW_TRIP
+    assert intent.budget == Decimal("500000")
+    assert intent.origin == "Chennai"
+    assert intent.people == 1
+    # Duration selection rule selects conservative lower-bound (7 days) for ranges like "7 to 10 days"
+    assert intent.days == 7
+    assert "nature" in intent.interests
+
+
+@pytest.mark.asyncio
+async def test_openrouter_failover_to_fallback_on_auth_error():
+    """chat_completion must failover to fallback key when primary key returns 401."""
+    mock_http = MagicMock(spec=httpx.AsyncClient)
+
+    resp_primary = MagicMock()
+    resp_primary.status_code = 401
+    resp_primary.text = '{"error": "Invalid API key"}'
+
+    resp_fallback = MagicMock()
+    resp_fallback.status_code = 200
+    resp_fallback.json.return_value = {
+        "choices": [{"message": {"content": '{"budget": 20000, "days": 3, "destination": "Goa"}'}}]
+    }
+
+    mock_http.post = AsyncMock(side_effect=[resp_primary, resp_fallback])
+
+    client = OpenRouterClient(
+        api_key="bad_primary_key",
+        fallback_api_key="good_fallback_key",
+        http_client=mock_http,
+    )
+    assert client.has_credentials is True
+
+    result = await client.chat_completion([{"role": "user", "content": "test"}])
+    assert result["destination"] == "Goa"
+    assert mock_http.post.call_count == 2
+    assert mock_http.post.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer bad_primary_key"
+    assert mock_http.post.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer good_fallback_key"
+
+
+@pytest.mark.asyncio
+async def test_openrouter_failover_to_fallback_on_rate_limit():
+    """chat_completion must failover to fallback key when primary key hits 429."""
+    mock_http = MagicMock(spec=httpx.AsyncClient)
+
+    resp_primary = MagicMock()
+    resp_primary.status_code = 429
+    resp_primary.text = '{"error": {"code": 429, "message": "Rate limit reached"}}'
+
+    resp_fallback = MagicMock()
+    resp_fallback.status_code = 200
+    resp_fallback.json.return_value = {
+        "choices": [{"message": {"content": '{"budget": 50000, "days": 5, "destination": "Ooty"}'}}]
+    }
+
+    mock_http.post = AsyncMock(side_effect=[resp_primary, resp_fallback])
+
+    client = OpenRouterClient(
+        api_key="rate_limited_primary",
+        fallback_api_key="active_fallback_key",
+        http_client=mock_http,
+    )
+
+    result = await client.chat_completion([{"role": "user", "content": "plan trip"}])
+    assert result["destination"] == "Ooty"
+    assert mock_http.post.call_count == 2
+    assert mock_http.post.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer active_fallback_key"
+
+

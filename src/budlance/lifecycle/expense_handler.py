@@ -6,9 +6,9 @@ from typing import Any
 from uuid import UUID
 
 from budlance.ai.schemas import ParsedTripIntent
-from budlance.db.models import Itinerary, LedgerCategory, Trip
+from budlance.db.models import Itinerary, LedgerCategory, Trip, utc_now
 from budlance.db.repositories.itinerary_repo import ItineraryRepository
-from budlance.db.repositories.ledger_repo import LedgerRepository
+from budlance.db.repositories.ledger_repo import DuplicateLedgerEntryError, LedgerRepository
 from budlance.db.repositories.trip_repo import TripRepository
 from budlance.ledger.manager import VirtualLedgerManager
 from budlance.ledger.models import LedgerSummary
@@ -114,12 +114,14 @@ class ExpenseLifecycleHandler:
         self.ledger_repo = ledger_repo or LedgerRepository()
         self.itinerary_repo = itinerary_repo or ItineraryRepository()
         self.ledger_manager = ledger_manager or VirtualLedgerManager(self.ledger_repo)
+        self._processed_events: dict[UUID, set[str]] = {}
 
     async def handle_log_expense(
         self,
         chat_id: int,
         parsed: ParsedTripIntent,
         trip: Trip | None = None,
+        event_id: str | None = None,
     ) -> ExpenseResult:
         """Handle expense logging and optional day lifecycle progression.
 
@@ -129,6 +131,8 @@ class ExpenseLifecycleHandler:
         3. Day must fall within 1 <= day <= trip.duration_days.
         4. actual_amount represents money actually spent (never conflated with planned_amount).
         5. Day completion and advancement occur ONLY when parsed.day_completed is True.
+        6. Event idempotency: replaying identical event_id is suppressed, while distinct
+           event_ids with identical amounts/descriptions remain separate genuine purchases.
         """
         # 1. Load active trip
         active_trip = trip or self.trip_repo.get_active_trip(chat_id)
@@ -170,32 +174,159 @@ class ExpenseLifecycleHandler:
                 error="INVALID_DAY",
             )
 
-        # 5. Map to A/B/C/D ledger bucket and record spending
-        bucket = map_expense_category_to_bucket(parsed.expense_category)
-        cat_desc = (parsed.expense_category or "expense").strip().capitalize()
-        entry_description = f"Day {resolved_day} {cat_desc} expense"
-
-        self.ledger_manager.record_spending(
-            trip_id=active_trip.id,
-            category=bucket,
-            amount=parsed.amount,
-            description=entry_description,
-            source="user_reported",
-            actual_amount=parsed.amount,
-            day_number=resolved_day,
-        )
-
-        formatted_amt = format_currency_amount(parsed.amount)
-
-        # 6. Evaluate day lifecycle progression
-        # CRITICAL RULE: Logging an expense does NOT automatically mean the day is complete.
-        if not parsed.day_completed:
-            # Expense only — day remains active and current_day unchanged
-            msg = f"Recorded ₹{formatted_amt} for Day {resolved_day}.\n\nDay {resolved_day} is still active."
-            logger.info(
-                "[EXPENSE_LIFECYCLE] Expense ₹%s recorded for Day %s (active day unchanged)",
-                formatted_amt, resolved_day,
+        # 1.5 Handle expense reversal / correction if requested
+        if getattr(parsed, "reversal_target_amount", None) is not None:
+            reversal_entry = self.ledger_repo.record_expense_reversal(
+                trip_id=active_trip.id,
+                target_amount=parsed.reversal_target_amount,
+                category=parsed.expense_category,
+                reason=getattr(parsed, "reversal_reason", None),
             )
+            if reversal_entry:
+                summary = self.ledger_manager.get_summary(active_trip.id)
+                formatted_rev = format_currency_amount(parsed.reversal_target_amount)
+                return ExpenseResult(
+                    trip_id=active_trip.id,
+                    status="EXPENSE_LOGGED",
+                    message_text=f"Reversed expense of ₹{formatted_rev} for Day {resolved_day}.\n\nDay {resolved_day} is still active.",
+                    ledger_summary=summary,
+                )
+            return ExpenseResult(
+                trip_id=active_trip.id,
+                status="INVALID_EXPENSE",
+                message_text=f"Could not find matching recorded expense of ₹{parsed.reversal_target_amount} to reverse.",
+                error="REVERSAL_TARGET_NOT_FOUND",
+            )
+
+        # 5. Map to A/B/C/D ledger bucket and check idempotency
+        effective_event_id = event_id or getattr(parsed, "event_id", None)
+        existing_entries = self.ledger_repo.get_ledger_entries(active_trip.id)
+        processed_set = self._processed_events.setdefault(active_trip.id, set())
+
+        # Check multi-expense vs single expense
+        expense_items = parsed.expenses if getattr(parsed, "expenses", None) and len(parsed.expenses) > 1 else None
+
+        if effective_event_id:
+            # Stable incoming-message / update identifier present.
+            # Replaying the SAME event identity must NOT create duplicate spending.
+            is_duplicate_event = (
+                effective_event_id in processed_set
+                or self.ledger_repo.has_event_id(active_trip.id, effective_event_id)
+                or any(f"[evt:{effective_event_id}]" in (e.description or "") or f"[evt:{effective_event_id}:" in (e.description or "") for e in existing_entries)
+            )
+            if is_duplicate_event:
+                logger.info(
+                    "[EXPENSE_LIFECYCLE] Suppressed duplicate event replay (event_id=%s) for Day %s",
+                    effective_event_id, resolved_day,
+                )
+                formatted_amt = format_currency_amount(parsed.amount)
+                msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                return ExpenseResult(
+                    trip_id=active_trip.id,
+                    status="EXPENSE_LOGGED",
+                    message_text=msg,
+                    ledger_summary=self.ledger_manager.get_summary(active_trip.id),
+                )
+
+            processed_set.add(effective_event_id)
+
+        # 6. Record spending in Virtual Ledger
+        if expense_items:
+            # Multiple expenses in a single event: committed atomically in a single transaction
+            batch_tuples = []
+            for idx, item in enumerate(expense_items):
+                b = map_expense_category_to_bucket(item.category)
+                i_desc = (item.description or item.category).strip().capitalize()
+                entry_desc = f"Day {resolved_day} {i_desc}"
+                if effective_event_id:
+                    entry_desc += f" [evt:{effective_event_id}:{idx}]"
+                batch_tuples.append((b, item.amount, entry_desc, resolved_day))
+
+            try:
+                self.ledger_manager.record_spending_batch(
+                    trip_id=active_trip.id,
+                    items=batch_tuples,
+                    source="user_reported",
+                )
+            except DuplicateLedgerEntryError:
+                # Atomic transaction failure: storage committed zero rows
+                logger.info(
+                    "[EXPENSE_LIFECYCLE] Persistent store rejected duplicate multi-expense replay (event_id=%s)",
+                    effective_event_id,
+                )
+                total_amt = sum(it.amount for it in expense_items)
+                formatted_amt = format_currency_amount(total_amt)
+                msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                return ExpenseResult(
+                    trip_id=active_trip.id,
+                    status="EXPENSE_LOGGED",
+                    message_text=msg,
+                    ledger_summary=self.ledger_manager.get_summary(active_trip.id),
+                )
+            total_amt = sum(it.amount for it in expense_items)
+            formatted_amt = format_currency_amount(total_amt)
+            parts_desc = " and ".join(f"₹{format_currency_amount(it.amount)} on {it.description or it.category}" for it in expense_items)
+            spend_prefix = f"Recorded {parts_desc} for Day {resolved_day}."
+        else:
+            # Single expense path
+            bucket = map_expense_category_to_bucket(parsed.expense_category)
+            cat_desc = (parsed.expense_category or "expense").strip().capitalize()
+            base_desc = f"Day {resolved_day} {cat_desc} expense"
+
+            if effective_event_id:
+                entry_description = f"{base_desc} [evt:{effective_event_id}]"
+            else:
+                entry_description = base_desc
+                for e in existing_entries:
+                    if (
+                        e.actual_amount == parsed.amount
+                        and e.category == bucket
+                        and e.day_number == resolved_day
+                        and e.description == entry_description
+                        and (utc_now() - e.created_at).total_seconds() < 60
+                    ):
+                        logger.info(
+                            "[EXPENSE_LIFECYCLE] Suppressed duplicate expense ₹%s for Day %s (within 60s, no event_id)",
+                            parsed.amount, resolved_day,
+                        )
+                        formatted_amt = format_currency_amount(parsed.amount)
+                        msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                        return ExpenseResult(
+                            trip_id=active_trip.id,
+                            status="EXPENSE_LOGGED",
+                            message_text=msg,
+                            ledger_summary=self.ledger_manager.get_summary(active_trip.id),
+                        )
+
+            try:
+                self.ledger_manager.record_spending(
+                    trip_id=active_trip.id,
+                    category=bucket,
+                    amount=parsed.amount,
+                    description=entry_description,
+                    source="user_reported",
+                    actual_amount=parsed.amount,
+                    day_number=resolved_day,
+                )
+            except DuplicateLedgerEntryError:
+                logger.info(
+                    "[EXPENSE_LIFECYCLE] Persistent store rejected duplicate expense replay (event_id=%s)",
+                    effective_event_id,
+                )
+                formatted_amt = format_currency_amount(parsed.amount)
+                msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                return ExpenseResult(
+                    trip_id=active_trip.id,
+                    status="EXPENSE_LOGGED",
+                    message_text=msg,
+                    ledger_summary=self.ledger_manager.get_summary(active_trip.id),
+                )
+            formatted_amt = format_currency_amount(parsed.amount)
+            spend_prefix = f"Recorded ₹{formatted_amt} for Day {resolved_day}."
+
+        is_day_complete = bool(getattr(parsed, "complete_day", False) or getattr(parsed, "day_completed", False))
+        if not is_day_complete:
+            msg = f"{spend_prefix}\n\nDay {resolved_day} is still active."
         else:
             # Explicit day completion requested
             itinerary_record = self.itinerary_repo.get_itinerary(active_trip.id)
@@ -287,6 +418,7 @@ async def handle_log_expense(
     itinerary_repo: ItineraryRepository | None = None,
     ledger_manager: VirtualLedgerManager | None = None,
     trip: Trip | None = None,
+    event_id: str | None = None,
 ) -> ExpenseResult:
     """Module-level entry point equivalent to handle_log_expense(chat_id, parsed)."""
     handler = ExpenseLifecycleHandler(
@@ -295,4 +427,4 @@ async def handle_log_expense(
         itinerary_repo=itinerary_repo,
         ledger_manager=ledger_manager,
     )
-    return await handler.handle_log_expense(chat_id=chat_id, parsed=parsed, trip=trip)
+    return await handler.handle_log_expense(chat_id=chat_id, parsed=parsed, trip=trip, event_id=event_id)

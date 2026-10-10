@@ -18,8 +18,12 @@ def normalize_places(envelope: TravelDataEnvelope) -> list[PlaceOption]:
         logger.warning("Place data is not a valid dictionary envelope.")
         return results
 
-    places = data.get("local_results") or []
-    if not isinstance(places, list):
+    raw_places = data.get("local_results") or data.get("place_results") or data.get("organic_results") or []
+    if isinstance(raw_places, dict):
+        places = [raw_places]
+    elif isinstance(raw_places, list):
+        places = raw_places
+    else:
         return results
 
     for item in places:
@@ -39,6 +43,13 @@ def normalize_places(envelope: TravelDataEnvelope) -> list[PlaceOption]:
         reviews = item.get("reviews")
         price_level = item.get("price")
 
+        place_id = item.get("place_id") or item.get("data_id")
+        coords = item.get("gps_coordinates") if isinstance(item.get("gps_coordinates"), dict) else {}
+        lat = coords.get("latitude") if isinstance(coords.get("latitude"), (int, float)) else None
+        lng = coords.get("longitude") if isinstance(coords.get("longitude"), (int, float)) else None
+        hours = item.get("operating_hours") or item.get("hours") or item.get("open_state")
+        link = item.get("link") or item.get("website")
+
         option = PlaceOption(
             name=str(name),
             category=str(category) if category else None,
@@ -47,8 +58,15 @@ def normalize_places(envelope: TravelDataEnvelope) -> list[PlaceOption]:
             review_count=int(reviews) if reviews is not None else None,
             price_level=str(price_level) if price_level else None,
             estimated_cost=Decimal("0.00"),
+            place_id=str(place_id) if place_id else None,
+            latitude=float(lat) if lat is not None else None,
+            longitude=float(lng) if lng is not None else None,
+            opening_hours=str(hours) if hours else None,
+            link=str(link) if link else None,
             source=envelope.source,
             is_fallback=envelope.is_fallback,
+            retrieval_timestamp=envelope.provenance.retrieval_timestamp if envelope.provenance else envelope.created_at,
+            provenance=envelope.provenance,
         )
         results.append(option)
 

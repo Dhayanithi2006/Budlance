@@ -166,7 +166,7 @@ Travel Party:
 
 JSON Schema (return exactly this structure):
 {
-  "action": "NEW_TRIP" | "CHANGE_BUDGET" | "CHANGE_DAYS" | "CHANGE_PEOPLE" | "CHANGE_DESTINATION" | "CHANGE_TRANSPORT" | "CONFIRM_BOOKING" | "FIND_ALTERNATIVE" | "RESCUE" | "LOG_EXPENSE" | "TRIP_COMPLETE" | "UNRECOGNIZED",
+  "action": "NEW_TRIP" | "MODIFY_TRIP" | "CHANGE_BUDGET" | "CHANGE_DAYS" | "CHANGE_PEOPLE" | "CHANGE_DESTINATION" | "CHANGE_TRANSPORT" | "CONFIRM_BOOKING" | "FIND_ALTERNATIVE" | "RESCUE" | "LOG_EXPENSE" | "TRIP_COMPLETE" | "UNRECOGNIZED",
   "budget": number or null,
   "currency": "INR",
   "people": integer or null,
@@ -178,60 +178,39 @@ JSON Schema (return exactly this structure):
   "traveler_type": string or null,
   "transport_mode": "train" | "flight" | null,
   "transport_class": "sleeper" | "3ac" | "2ac" | "1ac" | "economy" | "premium_economy" | "business" | "first" | null,
+  "hotel_tier": "4-star" | "5-star" | "luxury" | "budget" | "standard" | null,
+  "hotel_preference": string or null,
+  "strict_constraints": list of strings,
   "booking_confirmed": boolean,
   "rescue_detail": string or null,
   "amount": number or null,
   "expense_category": string or null,
   "day_number": integer or null,
-  "day_completed": boolean
+  "day_completed": boolean,
+  "start_date": "YYYY-MM-DD" or null,
+  "end_date": "YYYY-MM-DD" or null
 }
 
 EXAMPLES:
 
-Example 1 — New trip, natural English, X-to-Y:
-User: "Currently I'm in Chennai, I want to go Delhi, budget 10000, 1 person, famous places and food."
-Output: {"action": "NEW_TRIP", "budget": 10000, "currency": "INR", "people": 1, "days": null, "origin": "Chennai", "destination": "Delhi", "interests": ["famous places", "food"], "travel_party": null, "traveler_type": null, "rescue_detail": null}
+Example 1 — New trip, natural English, X-to-Y with date range:
+User: "Plan a 5-day trip from Chennai to Goa for 2 adults from 1–5 November 2026. My total budget is ₹30,000 including return travel, stay, food and activities. I like beaches and local food."
+Output: {"action": "NEW_TRIP", "budget": 30000, "currency": "INR", "people": 2, "days": 5, "origin": "Chennai", "destination": "Goa", "interests": ["beaches", "local food"], "travel_party": null, "traveler_type": null, "start_date": "2026-11-01", "end_date": "2026-11-05", "rescue_detail": null}
 
 Example 2 — Find alternative (no new destination named):
 Previous context: budget=10000, people=1, days=5, origin=Chennai, destination=Goa
 User: "Goa is too expensive. Recommend some other place within this budget."
 Output: {"action": "FIND_ALTERNATIVE", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": null, "interests": [], "travel_party": null, "traveler_type": null, "rescue_detail": null}
 
-Example 3 — Destination correction:
-User: "Actually change the destination to Delhi."
-Output: {"action": "CHANGE_DESTINATION", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": "Delhi", "interests": [], "travel_party": null, "traveler_type": null, "rescue_detail": null}
+Example 3 — Multi-attribute follow-up refinement:
+Previous context: budget=30000, people=2, days=5, origin=Chennai, destination=Goa, start_date=2026-11-01, end_date=2026-11-05, interests=["beaches", "local food"]
+User: "Actually, make it 4 days and lower my total budget to ₹25,000. I prefer accommodation near the beach. Keep everything else the same."
+Output: {"action": "MODIFY_TRIP", "budget": 25000, "currency": "INR", "people": null, "days": 4, "origin": null, "destination": null, "interests": [], "hotel_preference": "near the beach", "travel_party": null, "traveler_type": null, "rescue_detail": null}
 
-Example 4 — Tanglish new trip:
-User: "Enakku 15000 budget irukku, 2 peru, 3 days Chennai la irundhu hill station poganum."
-Output: {"action": "NEW_TRIP", "budget": 15000, "currency": "INR", "people": 2, "days": 3, "origin": "Chennai", "destination": null, "interests": ["hill station"], "travel_party": null, "traveler_type": null, "rescue_detail": null}
-
-Example 5 — Change days only:
-User: "Make it 4 days."
-Output: {"action": "CHANGE_DAYS", "budget": null, "currency": "INR", "people": null, "days": 4, "origin": null, "destination": null, "interests": [], "travel_party": null, "traveler_type": null, "rescue_detail": null}
-
-Example 6 — Rescue in-trip:
-User: "It's raining heavily and the waterpark is closed."
-Output: {"action": "RESCUE", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": null, "interests": [], "travel_party": null, "traveler_type": null, "rescue_detail": "Heavy rain, waterpark is closed"}
-
-Example 7 — Unrecognized:
-User: "ok"
-Output: {"action": "UNRECOGNIZED", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": null, "interests": [], "travel_party": null, "traveler_type": null, "rescue_detail": null}
-
-Example 8 — Natural X-to-Y route with couple:
-User: "budget 20000, 2people(couple), 3 days, place chennai to goa"
-Output: {"action": "NEW_TRIP", "budget": 20000, "currency": "INR", "people": 2, "days": 3, "origin": "Chennai", "destination": "Goa", "interests": [], "travel_party": "couple", "traveler_type": "couple", "rescue_detail": null}
-
-Example 9 — Expense logging without day completion:
-User: "spent ₹2200 on food today"
-Output: {"action": "LOG_EXPENSE", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": null, "interests": [], "travel_party": null, "traveler_type": null, "transport_mode": null, "transport_class": null, "booking_confirmed": false, "rescue_detail": null, "amount": 2200, "expense_category": "food", "day_number": null, "day_completed": false}
-
-Example 10 — Expense logging with explicit day completion:
-User: "Day 1 done, used about ₹3000 on autos and lunch"
-Output: {"action": "LOG_EXPENSE", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": null, "interests": [], "travel_party": null, "traveler_type": null, "transport_mode": null, "transport_class": null, "booking_confirmed": false, "rescue_detail": null, "amount": 3000, "expense_category": "transport", "day_number": 1, "day_completed": true}
-
-Example 11 — Trip completion:
-User: "The trip is over, we're back home"
-Output: {"action": "TRIP_COMPLETE", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": null, "interests": [], "travel_party": null, "traveler_type": null, "transport_mode": null, "transport_class": null, "booking_confirmed": false, "rescue_detail": null, "amount": null, "expense_category": null, "day_number": null, "day_completed": false}
+Example 4 — Explicit constraints on existing trip:
+Previous context: budget=25000, people=2, days=4, origin=Chennai, destination=Goa, start_date=2026-11-01, end_date=2026-11-04
+User: "Keep those dates and the ₹25,000 budget, but I absolutely want flights and a 4-star hotel. If it doesn't fit, show me the shortfall and suggest alternatives. Don't change my choices without asking."
+Output: {"action": "MODIFY_TRIP", "budget": null, "currency": "INR", "people": null, "days": null, "origin": null, "destination": null, "interests": [], "transport_mode": "flight", "hotel_tier": "4-star", "strict_constraints": ["flight", "4-star hotel", "strict_preferences"], "rescue_detail": null}
 """
 
 TRIP_INTENT_CONTEXT_PROMPT = """You are Budlance's Travel Intent Extractor for multi-turn conversations.
@@ -241,6 +220,7 @@ TASK: Given an EXISTING trip context and a NEW user message, produce an UPDATED 
 Rules:
 1. Classify the action first:
    - NEW_TRIP: user says "start over", "new trip", "forget that" — ignore all existing context.
+   - MODIFY_TRIP: user refines or updates multiple fields or specifies constraints/preferences on the active trip (e.g. changing both duration and budget, or stating "keep everything else the same", or explicit constraints like "flights and 4-star hotel").
    - CHANGE_BUDGET: user changes only the budget.
    - CHANGE_DAYS: user changes only the duration.
    - CHANGE_PEOPLE: user changes only the traveler count.
@@ -254,17 +234,18 @@ Rules:
    - TRIP_COMPLETE: user explicitly indicates trip has finished ("trip is over", "we are back home", "trip's done").
    - UNRECOGNIZED: message is too vague to act on ("ok", "thanks", "that's it").
 2. For CHANGE_* actions: extract ONLY the field that changed. All other fields must be null.
-3. For FIND_ALTERNATIVE: destination MUST be null. Python reopens discovery.
-4. For NEW_TRIP: extract fields from the new message only. Ignore existing context.
-5. For follow-up/clarification (e.g. "4 days" when days was null): use action=NEW_TRIP with all fields set.
-6. NEVER invent values not stated by the user. Missing stays null.
-7. Pronouns like "there", "that place", "that city" refer to the active destination in context.
-8. travel_party: Classify ONLY from explicit user language as one of: solo, couple, friends, family, relatives. Do NOT infer travel_party from the number of people alone. Leave null when unstated.
-9. Return ONLY a valid JSON object matching the schema. No markdown, no explanation.
+3. For MODIFY_TRIP: extract all fields changed or specified in the message. Unchanged fields should be null so Python preserves them from context.
+4. For FIND_ALTERNATIVE: destination MUST be null. Python reopens discovery.
+5. For NEW_TRIP: extract fields from the new message only. Ignore existing context.
+6. For follow-up/clarification (e.g. "4 days" when days was null): use action=NEW_TRIP with all fields set.
+7. NEVER invent values not stated by the user. Missing stays null.
+8. Pronouns like "there", "that place", "that city" refer to the active destination in context.
+9. travel_party: Classify ONLY from explicit user language as one of: solo, couple, friends, family, relatives. Do NOT infer travel_party from the number of people alone. Leave null when unstated.
+10. Return ONLY a valid JSON object matching the schema. No markdown, no explanation.
 
 JSON Schema:
 {
-  "action": "NEW_TRIP" | "CHANGE_BUDGET" | "CHANGE_DAYS" | "CHANGE_PEOPLE" | "CHANGE_DESTINATION" | "CHANGE_TRANSPORT" | "CONFIRM_BOOKING" | "FIND_ALTERNATIVE" | "RESCUE" | "LOG_EXPENSE" | "TRIP_COMPLETE" | "UNRECOGNIZED",
+  "action": "NEW_TRIP" | "MODIFY_TRIP" | "CHANGE_BUDGET" | "CHANGE_DAYS" | "CHANGE_PEOPLE" | "CHANGE_DESTINATION" | "CHANGE_TRANSPORT" | "CONFIRM_BOOKING" | "FIND_ALTERNATIVE" | "RESCUE" | "LOG_EXPENSE" | "TRIP_COMPLETE" | "UNRECOGNIZED",
   "budget": number or null,
   "currency": string,
   "people": integer or null,
@@ -276,12 +257,17 @@ JSON Schema:
   "traveler_type": string or null,
   "transport_mode": "train" | "flight" | null,
   "transport_class": "sleeper" | "3ac" | "2ac" | "1ac" | "economy" | "premium_economy" | "business" | "first" | null,
+  "hotel_tier": "4-star" | "5-star" | "luxury" | "budget" | "standard" | null,
+  "hotel_preference": string or null,
+  "strict_constraints": list of strings,
   "booking_confirmed": boolean,
   "rescue_detail": string or null,
   "amount": number or null,
   "expense_category": string or null,
   "day_number": integer or null,
-  "day_completed": boolean
+  "day_completed": boolean,
+  "start_date": "YYYY-MM-DD" or null,
+  "end_date": "YYYY-MM-DD" or null
 }
 
 EXAMPLES:
@@ -338,7 +324,7 @@ CRITICAL INSTRUCTIONS:
    - "weather_closure": Weather disruption (rain, heatwave) or closed venue/attraction.
    - "price_dispute": Driver, merchant, or vendor asking for high/unexpected fares or prices.
    - "unknown": Message cannot be resolved via rescue workflows.
-3. For "price_dispute", extract the numerical price mentioned into "reported_price" and the service into "service_type" (e.g. "auto", "taxi", "hotel").
+3. For "price_dispute", extract the numerical price mentioned into "reported_price", the service into "service_type" (e.g. "auto", "taxi", "hotel"), and any ride distance mentioned in km into "distance_km" (e.g. 12.0 for "12 km", null if absent).
 4. For "weather_closure", extract any location or attraction mentioned into "location_or_context".
 5. Do NOT perform budget arithmetic, search queries, or itinerary replanning.
 
@@ -348,7 +334,8 @@ JSON Schema to return:
   "user_issue": string summary of the issue,
   "location_or_context": string or null,
   "reported_price": number or null,
-  "service_type": string or null
+  "service_type": string or null,
+  "distance_km": number or null
 }
 """
 

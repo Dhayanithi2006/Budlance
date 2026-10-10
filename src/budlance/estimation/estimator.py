@@ -1,5 +1,6 @@
 """EstimationLayer combining food and local transport estimators."""
 
+from decimal import Decimal
 from budlance.cache.fallback import FallbackDataProvider
 from budlance.estimation.food import FoodEstimator
 from budlance.estimation.transport import LocalTransitEstimator
@@ -27,9 +28,16 @@ class EstimationLayer:
         self,
         distance_km: float,
         mode: str = "auto",
+        live_fare: Decimal | None = None,
+        is_live: bool = False,
     ) -> LocalTransitEstimate:
         """Estimate local point-to-point transit based on route distance."""
-        return self.transit_estimator.estimate_by_distance(distance_km=distance_km, mode=mode)
+        return self.transit_estimator.estimate_by_distance(
+            distance_km=distance_km,
+            mode=mode,
+            live_fare=live_fare,
+            is_live=is_live,
+        )
 
     def estimate_local_transit_daily(
         self,

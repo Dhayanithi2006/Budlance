@@ -62,12 +62,12 @@ class ItineraryEnhancer:
         settings = get_settings()
         if client is not None:
             self.client = client
-        elif settings.has_openrouter_credentials:
-            self.client = OpenRouterClient()
         elif settings.has_gemini_credentials:
             self.client = GeminiClient()
-        else:
+        elif settings.has_openrouter_credentials:
             self.client = OpenRouterClient()
+        else:
+            self.client = GeminiClient()
 
         self.use_mock = use_mock or not getattr(self.client, "has_credentials", False)
 
@@ -217,9 +217,13 @@ class ItineraryEnhancer:
             afternoon_item = next((it for it in day.items if it.time_slot.lower() == "afternoon"), None)
             evening_item = next((it for it in day.items if it.time_slot.lower() == "evening"), None)
 
-            m_name = morning_item.attraction_name or morning_item.activity if morning_item else "morning leisure"
-            a_name = afternoon_item.attraction_name or afternoon_item.activity if afternoon_item else "afternoon exploration"
-            e_name = evening_item.attraction_name or evening_item.activity if evening_item else "evening relaxation"
+            m_raw = (morning_item.attraction_name or morning_item.activity or "morning leisure") if morning_item else "morning leisure"
+            a_raw = (afternoon_item.attraction_name or afternoon_item.activity or "afternoon exploration") if afternoon_item else "afternoon exploration"
+            e_raw = (evening_item.attraction_name or evening_item.activity or "evening relaxation") if evening_item else "evening relaxation"
+
+            m_name = " ".join(m_raw.split()[:3])
+            a_name = " ".join(a_raw.split()[:3])
+            e_name = " ".join(e_raw.split()[:3])
 
             if party == "family":
                 m_desc = f"Explore {m_name} together with child-friendly walkways and relaxed pacing."

@@ -323,7 +323,28 @@ class ApiUsage(BaseModel):
 # ============================================================================
 # 15. Trip Pass (Monetization & Access Control)
 # ============================================================================
-PassStatus = Literal["FREE", "CHECKOUT_PENDING", "PAID", "PAYMENT_FAILED", "PAYMENT_ABANDONED"]
+PassStatus = Literal[
+    "FREE",
+    "FREE_PREVIEW",
+    "CHECKOUT_PENDING",
+    "PAID",
+    "PAID_VERIFIED",
+    "PAYMENT_FAILED",
+    "PAYMENT_CANCELLED",
+    "PAYMENT_ABANDONED",
+    "PAYMENT_EXPIRED",
+    "DEMO_ACCESS",
+]
+
+
+def _default_pass_amount() -> Decimal:
+    from budlance.config import get_settings
+    return get_settings().trip_pass_amount
+
+
+def _default_pass_currency() -> str:
+    from budlance.config import get_settings
+    return get_settings().trip_pass_currency
 
 
 class TripPass(BaseModel):
@@ -334,8 +355,8 @@ class TripPass(BaseModel):
     trip_id: UUID
     telegram_user_id: int
     telegram_chat_id: int
-    amount: Decimal = Decimal("49.00")
-    currency: str = "INR"
+    amount: Decimal = Field(default_factory=_default_pass_amount)
+    currency: str = Field(default_factory=_default_pass_currency)
     provider: str = "razorpay"  # razorpay, stripe, demo
     payment_reference: str | None = None
     status: PassStatus = "FREE"
@@ -348,17 +369,67 @@ class TripPass(BaseModel):
         """Convenience property accessing checkout URL from pass metadata."""
         return self.metadata.get("checkout_url")
 
+    @property
+    def is_unlocked(self) -> bool:
+        """Check if pass grants premium access (PAID, PAID_VERIFIED, or DEMO_ACCESS)."""
+        return self.status in ("PAID", "PAID_VERIFIED", "DEMO_ACCESS")
+
+    @property
+    def is_verified_paid(self) -> bool:
+        """Check if pass was confirmed through verified payment."""
+        return self.status in ("PAID", "PAID_VERIFIED")
+
+    @property
+    def is_demo(self) -> bool:
+        """Check if pass is active via demo access."""
+        return self.status == "DEMO_ACCESS"
+
     @field_validator("status", mode="before")
     @classmethod
     def normalize_status(cls, v: Any) -> str:
         """Normalize case-insensitive status values to authoritative canonical uppercase."""
         if isinstance(v, str):
             v_up = v.strip().upper()
-            if v_up in ("FREE", "CHECKOUT_PENDING", "PAID", "PAYMENT_FAILED", "PAYMENT_ABANDONED"):
+            alias_map = {
+                "CANCELLED": "PAYMENT_CANCELLED",
+                "CANCELED": "PAYMENT_CANCELLED",
+                "FAILED": "PAYMENT_FAILED",
+                "EXPIRED": "PAYMENT_EXPIRED",
+                "ABANDONED": "PAYMENT_ABANDONED",
+                "PREVIEW": "FREE_PREVIEW",
+                "DEMO": "DEMO_ACCESS",
+            }
+            if v_up in alias_map:
+                return alias_map[v_up]
+            valid_statuses = {
+                "FREE",
+                "FREE_PREVIEW",
+                "CHECKOUT_PENDING",
+                "PAID",
+                "PAID_VERIFIED",
+                "PAYMENT_FAILED",
+                "PAYMENT_CANCELLED",
+                "PAYMENT_ABANDONED",
+                "PAYMENT_EXPIRED",
+                "DEMO_ACCESS",
+            }
+            if v_up in valid_statuses:
                 return v_up
             raise ValueError(
-                f"Invalid pass status: '{v}'. Canonical statuses are: FREE, CHECKOUT_PENDING, PAID, PAYMENT_FAILED, PAYMENT_ABANDONED"
+                f"Invalid pass status: '{v}'. Canonical statuses are: {', '.join(sorted(valid_statuses))}"
             )
         if v is None:
             return "FREE"
         raise ValueError(f"Invalid pass status type: {type(v)}. Expected string.")
+
+
+class PaymentEvent(BaseModel):
+    """Payment event record for distributed webhook idempotency."""
+    id: UUID = Field(default_factory=uuid4)
+    event_id: str
+    trip_id: UUID
+    provider: str = "stripe"
+    event_type: str
+    status: str = "COMPLETED"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)

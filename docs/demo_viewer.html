@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Budlance AI Travel Agent — Live Demo Simulation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0f1d;
+      --bg-secondary: #111827;
+      --card-bg: rgba(23, 32, 54, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --user-bubble: #1d4ed8;
+      --bot-bubble: rgba(30, 41, 59, 0.95);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.25);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --badge-bg: rgba(56, 189, 248, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    body {
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg-primary) 70%);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 980px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Header Bar */
+    header {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bot-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0284c7, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .brand-text h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--success);
+      display: inline-block;
+    }
+
+    .brand-text p {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    /* Scenario Tabs */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tab-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+    }
+
+    .tab-btn.active {
+      background: var(--accent);
+      color: #04101e;
+      border-color: var(--accent);
+      box-shadow: 0 0 14px var(--accent-glow);
+    }
+
+    /* Chat Container */
+    .chat-window {
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 24px;
+      min-height: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      overflow-y: auto;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    .message {
+      display: flex;
+      flex-direction: column;
+      max-width: 82%;
+      animation: fadeIn 0.3s ease forwards;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .message.user {
+      align-self: flex-end;
+    }
+
+    .message.bot {
+      align-self: flex-start;
+    }
+
+    .bubble {
+      padding: 14px 18px;
+      border-radius: 18px;
+      font-size: 0.92rem;
+      line-height: 1.5;
+      position: relative;
+    }
+
+    .message.user .bubble {
+      background: var(--user-bubble);
+      color: #ffffff;
+      border-bottom-right-radius: 4px;
+      box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
+    }
+
+    .message.bot .bubble {
+      background: var(--bot-bubble);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      color: var(--text-main);
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }
+
+    .time-stamp {
+      font-size: 0.7rem;
+      color: rgba(255, 255, 255, 0.4);
+      margin-top: 4px;
+      align-self: flex-end;
+    }
+
+    /* Rich Card Blocks inside Bot Messages */
+    .waterfall-card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin: 10px 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+    }
+
+    .waterfall-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+    }
+
+    .waterfall-row:last-child {
+      border-bottom: none;
+      font-weight: 700;
+      color: var(--success);
+    }
+
+    .btn-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      text-decoration: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-link:hover {
+      background: var(--accent);
+      color: #04101e;
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+
+    .danger-card {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin: 8px 0;
+      color: #fca5a5;
+    }
+
+    .pitch-note {
+      background: rgba(99, 102, 241, 0.1);
+      border-left: 3px solid #818cf8;
+      border-radius: 0 10px 10px 0;
+      padding: 10px 14px;
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: #c7d2fe;
+    }
+
+    /* Auto Play Bar */
+    .footer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: rgba(17, 24, 39, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .play-btn {
+      background: linear-gradient(135deg, #10b981, #059669);
+      border: none;
+      color: white;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 0 14px rgba(16, 185, 129, 0.3);
+    }
+
+    .play-btn:hover {
+      filter: brightness(1.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <div class="bot-avatar">🌴</div>
+        <div class="brand-text">
+          <h1>Budlance Travel Agent <span class="status-dot"></span></h1>
+          <p>@budlance_bot • 100% Reverse-Budget Constraint Engine</p>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="tab-btn active" id="tab-1" onclick="loadScenario(1)">1. Flights Handoff</button>
+        <button class="tab-btn" id="tab-2" onclick="loadScenario(2)">2. Train Corridor</button>
+        <button class="tab-btn" id="tab-3" onclick="loadScenario(3)">3. Feasibility Gate</button>
+        <button class="tab-btn" id="tab-4" onclick="loadScenario(4)">4. In-Trip Rescue</button>
+        <button class="tab-btn" id="tab-5" onclick="loadScenario(5)">5. Tanglish NLP</button>
+      </div>
+    </header>
+
+    <div class="chat-window" id="chat-window">
+      <!-- Populated via script -->
+    </div>
+
+    <div class="footer-bar">
+      <div id="scenario-summary">Scenario 1: Live flight deep links with IATA resolution & zero hallucinations.</div>
+      <button class="play-btn" id="auto-play-btn" onclick="startAutoPlay()">▶ Auto Play Demo Flow</button>
+    </div>
+  </div>
+
+  <script>
+    const scenarios = {
+      1: {
+        summary: "Scenario 1: Live flight deep links with IATA resolution (MAA→DEL) & assumed travel dates.",
+        messages: [
+          {
+            type: "user",
+            text: "Plan a trip to Delhi from Chennai for 2 people, 3 days, with budget Rs 90,000, prefer flight",
+            time: "09:30 AM"
+          },
+          {
+            type: "bot",
+            html: `<strong>✈️ Your preferred flight option fits the trip budget!</strong><br><br>
+            • <strong>Route:</strong> Chennai (MAA) → Delhi (DEL) [Round Trip]<br>
+            • <strong>Carrier & Flight:</strong> Air India <code>AI 2886</code><br>
+            • <strong>Schedule:</strong> Dep 2026-11-08 08:05 — Arr 2026-11-08 11:00<br>
+            • <strong>Estimated Flight Cost:</strong> ₹45,352.00 (2 travelers)<br>
+            • <strong>Remaining Trip Budget:</strong> ₹44,648.00<br><br>
+            <a class="btn-link" href="https://www.google.com/travel/flights?q=Flights+to+DEL+from+MAA+on+2026-11-08+through+2026-11-10" target="_blank" id="flight-link">
+              🔗 Proceed to Google Flights (Direct Handoff)
+            </a><br><br>
+            <em>Reply with <strong>Booked</strong> once you finish external booking, and I will unlock your full itinerary!</em>
+            <div class="pitch-note">💡 <strong>Stage Pitch Point:</strong> Budlance plans and hands off; user pays provider directly. No template placeholders — genuine IATA codes (MAA, DEL) and dates are baked into the deep link.</div>`,
+            time: "09:30 AM"
+          }
+        ]
+      },
+      2: {
+        summary: "Scenario 2: Railhead gating (Broad Gauge) & multi-turn train class selection.",
+        messages: [
+          {
+            type: "user",
+            text: "Plan a trip from Chennai to Bangalore for 2 people, 2 days, with budget Rs 25,000, prefer train",
+            time: "09:32 AM"
+          },
+          {
+            type: "bot",
+            html: `Which train class would you prefer — Sleeper, 3AC, 2AC or 1AC?`,
+            time: "09:32 AM"
+          },
+          {
+            type: "user",
+            text: "3AC",
+            time: "09:33 AM"
+          },
+          {
+            type: "bot",
+            html: `<strong>🚆 Your preferred 3AC train option fits the current trip budget!</strong><br><br>
+            • <strong>Route:</strong> Chennai Central → Bangalore City (Round Trip)<br>
+            • <strong>Operator:</strong> Shatabdi Express (Estimated ₹3,000.00)<br>
+            • <strong>Remaining Budget:</strong> ₹22,000.00<br><br>
+            <a class="btn-link" href="https://www.irctc.co.in/nget/train-search" target="_blank" id="irctc-link">
+              🔗 Open Official IRCTC Portal
+            </a><br><br>
+            <em>Reply with <strong>Booked</strong> to build full day-by-day plan!</em>
+            <div class="pitch-note">💡 <strong>Stage Pitch Point:</strong> Both cities verified on official broad-gauge railhead database; non-railheads connect via 'nearest railhead + road'. Standard distance rate tables used.</div>`,
+            time: "09:33 AM"
+          }
+        ]
+      },
+      3: {
+        summary: "Scenario 3: Zero-Hallucination Reverse-Budget Feasibility Gate.",
+        messages: [
+          {
+            type: "user",
+            text: "Plan a 5-day luxury trip from Chennai to Goa for 4 people with budget Rs 10,000",
+            time: "09:35 AM"
+          },
+          {
+            type: "bot",
+            html: `<div class="danger-card">
+              ❌ <strong>Trip Plan Not Feasible within Budget</strong><br>
+              Mandatory travel and survival costs exceed your budget.
+            </div>
+            • <strong>Budget Provided:</strong> ₹10,000.00<br>
+            • <strong>Calculated Deficit:</strong> ₹11,800.00 (Impossible after 4 optimization attempts)<br><br>
+            💡 <strong>Actionable Guidance:</strong><br>
+            Increase budget to at least <strong>₹21,800.00</strong> or reduce party size to 2 people.
+            <div class="pitch-note">💡 <strong>Stage Pitch Point:</strong> Budlance will never hallucinate a trip that leaves travelers stranded. Feasibility Gate mathematical invariants reject deficit plans before generation.</div>`,
+            time: "09:35 AM"
+          }
+        ]
+      },
+      4: {
+        summary: "Scenario 4: Booking confirmation, Virtual Ledger, and In-Trip Fare Dispute Rescue.",
+        messages: [
+          {
+            type: "user",
+            text: "Booked",
+            time: "09:37 AM"
+          },
+          {
+            type: "bot",
+            html: `🎉 <strong>Trip Pass Active! Plan Unlocked: Bangalore</strong><br>
+            👥 2 travelers | ⏱️ 1 night stay<br><br>
+            <div class="waterfall-card">
+              <div class="waterfall-row"><span>Total Budget</span><span>₹25,000.00</span></div>
+              <div class="waterfall-row"><span>Fixed (Travel + ITC Stay)</span><span>₹11,605.00</span></div>
+              <div class="waterfall-row"><span>Daily Food & Transit</span><span>₹1,800.00</span></div>
+              <div class="waterfall-row"><span>Curated Attractions</span><span>₹500.00</span></div>
+              <div class="waterfall-row"><span>Discretionary Activities</span><span>₹1,250.00</span></div>
+              <div class="waterfall-row"><span>Rescue Reserve (Bucket D)</span><span>₹2,500.00</span></div>
+              <div class="waterfall-row"><span>Surplus Remaining</span><span>₹7,345.00 ✅</span></div>
+            </div>
+            📅 <strong>Day 1 Highlights:</strong> Lalbagh Botanical Garden (Morning) → Bangalore Palace (Afternoon).<br>
+            🎉 <strong>Event Alert:</strong> Lalbagh Weekend Floral Exhibition is on! (Reply 'Yes, add the event')`,
+            time: "09:37 AM"
+          },
+          {
+            type: "user",
+            text: "The auto driver is asking ₹450 for 5 km, is it fair?",
+            time: "09:39 AM"
+          },
+          {
+            type: "bot",
+            html: `🚕 <strong>Advisory Transit Fare Guidance:</strong><br><br>
+            • <strong>Quoted Price:</strong> ₹450.00<br>
+            • <strong>Estimated Fair Fare:</strong> ₹75.00 (~₹15/km for 5 km)<br>
+            • <strong>Status:</strong> <span style="color:var(--danger);font-weight:700;">SIGNIFICANTLY HIGH ⚠️</span><br><br>
+            ℹ️ Statutory auto rate heuristic (₹15/km). Quoted price is ~6x standard tariff.<br>
+            📝 Logged advisory note in your Virtual Ledger Bucket D.
+            <div class="pitch-note">💡 <strong>Stage Pitch Point:</strong> Heuristic parses distance (5 km) directly from natural language. No hardcoded 10km defaults. Protects travelers against local tourist overcharging in real time!</div>`,
+            time: "09:39 AM"
+          }
+        ]
+      },
+      5: {
+        summary: "Scenario 5: Tanglish / Colloquial South Indian Natural Language Processing.",
+        messages: [
+          {
+            type: "user",
+            text: "Chennai la irundhu Pondicherry poganum 2 days budget 15000",
+            time: "09:41 AM"
+          },
+          {
+            type: "bot",
+            html: `Got it! — <strong>Chennai → Pondicherry</strong>, ₹15,000 budget, 2 days.<br><br>
+            How many travelers will be joining this coastal road trip?
+            <div class="pitch-note">💡 <strong>Stage Pitch Point:</strong> Understands multilingual vernacular: seamlessly maps 'la irundhu' (from) to Origin, 'poganum' (want to go) to Destination, and extracts numbers.</div>`,
+            time: "09:41 AM"
+          }
+        ]
+      }
+    };
+
+    let currentScenario = 1;
+    let autoPlayInterval = null;
+
+    function renderMessages(msgs) {
+      const windowEl = document.getElementById("chat-window");
+      windowEl.innerHTML = "";
+      msgs.forEach((m, i) => {
+        const msgDiv = document.createElement("div");
+        msgDiv.className = `message ${m.type}`;
+        msgDiv.id = `msg-${currentScenario}-${i}`;
+        msgDiv.innerHTML = `
+          <div class="bubble">${m.html || m.text}</div>
+          <div class="time-stamp">${m.time}</div>
+        `;
+        windowEl.appendChild(msgDiv);
+      });
+      windowEl.scrollTop = windowEl.scrollHeight;
+    }
+
+    function loadScenario(num) {
+      currentScenario = num;
+      document.querySelectorAll(".tab-btn").forEach((b, idx) => {
+        b.classList.toggle("active", idx + 1 === num);
+      });
+      document.getElementById("scenario-summary").innerText = scenarios[num].summary;
+      renderMessages(scenarios[num].messages);
+    }
+
+    function startAutoPlay() {
+      let step = 1;
+      loadScenario(step);
+      if (autoPlayInterval) clearInterval(autoPlayInterval);
+      document.getElementById("auto-play-btn").innerText = "⏸ Auto Playing...";
+      autoPlayInterval = setInterval(() => {
+        step++;
+        if (step > 5) {
+          clearInterval(autoPlayInterval);
+          document.getElementById("auto-play-btn").innerText = "▶ Auto Play Demo Flow";
+          return;
+        }
+        loadScenario(step);
+      }, 3500);
+    }
+
+    // Initial load
+    loadScenario(1);
+  </script>
+</body>
+</html>

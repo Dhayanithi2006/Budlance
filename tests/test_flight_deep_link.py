@@ -136,7 +136,7 @@ def test_a_correct_route():
     )
     assert "https://www.google.com/travel/flights?q=" in handoff_url
     # Query must be URL-encoded
-    assert "Flights+from+Chennai+to+Delhi+round+trip+for+2+passengers" in handoff_url or "Flights%20from%20Chennai%20to%20Delhi%20round%20trip%20for%202%20passengers" in handoff_url
+    assert "Flights+to+DEL+from+MAA" in handoff_url or "Flights%20to%20DEL%20from%20MAA" in handoff_url
     assert "From+from" not in handoff_url
     assert "Flights+to+From" not in handoff_url
     assert "None" not in handoff_url
@@ -194,10 +194,7 @@ def test_b_round_trip_semantics():
 
     handoff = build_safe_flight_search_url("Chennai", "Delhi", outbound_date="2026-11-01", return_date="2026-11-04", people=2)
     unquoted = urllib.parse.unquote_plus(handoff)
-    assert "Flights from Chennai to Delhi round trip" in unquoted
-    assert "departing 2026-11-01" in unquoted
-    assert "returning 2026-11-04" in unquoted
-    assert "for 2 passengers" in unquoted
+    assert "Flights to DEL from MAA on 2026-11-01 through 2026-11-04" in unquoted
 
 
 # ============================================================================
@@ -524,3 +521,164 @@ async def test_g_realistic_conversation_simulation(orchestrator):
     assert "Remaining budget impact: ₹84,000.00" in text2
     assert "🔗 *External Booking Handoff:*" in text2
     assert "Reply with *Booked* once you have completed your external booking" in text2
+
+
+# ============================================================================
+# Test G — GET /book/{id} relay & fallback URL with real dates
+# ============================================================================
+
+def test_get_book_id_relay_endpoint_auto_submits_post_unmodified():
+    """Verify GET /book/{id} returns HTML auto-submitting POST form with unmodified post_data."""
+    from fastapi.testclient import TestClient
+    from budlance.api.app import app
+    from budlance.db.repositories.cache_repo import CacheRepository
+
+    client = TestClient(app)
+    repo = CacheRepository()
+
+    # 1. 404 on non-existent booking ID
+    res_404 = client.get("/book/non_existent_id")
+    assert res_404.status_code == 404
+    assert "Booking session expired or not found" in res_404.json()["detail"]
+
+    # 2. Store booking request with dict post_data
+    b_id1 = "test_book_123"
+    post_payload1 = {
+        "url": "https://www.goindigo.in/booking/checkout",
+        "post_data": {
+            "session_token": "tok_xyz_999",
+            "flight_id": "6E-204",
+            "fare_type": "regular",
+        },
+    }
+    repo.store_booking_request(b_id1, post_payload1, ttl_seconds=300)
+
+    res1 = client.get(f"/book/{b_id1}")
+    assert res1.status_code == 200
+    assert "text/html" in res1.headers["content-type"]
+    html_text1 = res1.text
+    assert 'action="https://www.goindigo.in/booking/checkout"' in html_text1
+    assert 'method="POST"' in html_text1
+    assert 'name="session_token" value="tok_xyz_999"' in html_text1
+    assert 'name="flight_id" value="6E-204"' in html_text1
+    assert 'name="fare_type" value="regular"' in html_text1
+    assert "document.getElementById('bookForm').submit();" in html_text1
+
+    # 3. Store booking request with string query-param post_data
+    b_id2 = "test_book_456"
+    post_payload2 = {
+        "url": "https://www.airindia.com/book-flight",
+        "post_data": "ref=promo2026&client_id=budlance_app",
+    }
+    repo.store_booking_request(b_id2, post_payload2, ttl_seconds=300)
+
+    res2 = client.get(f"/book/{b_id2}")
+    assert res2.status_code == 200
+    html_text2 = res2.text
+    assert 'action="https://www.airindia.com/book-flight"' in html_text2
+    assert 'name="ref" value="promo2026"' in html_text2
+    assert 'name="client_id" value="budlance_app"' in html_text2
+
+
+def test_plan_uses_book_id_when_options_exist_otherwise_fallback_search_url_with_dates():
+    """Verify plan uses /book/{id} when booking_options exist, otherwise safe fallback with real dates."""
+    from budlance.normalization.flights import build_safe_flight_search_url, normalize_flights
+    from budlance.orchestrator.formatter import format_feasible_plan
+    from budlance.engine.models import BudgetBreakdown
+    from budlance.db.repositories.cache_repo import CacheRepository
+
+    repo = CacheRepository()
+
+    # Case A: booking_options exist with post_data -> produces /book/{id}
+    env_with_options = TravelDataEnvelope(
+        source=DataSource.LIVE,
+        engine="google_flights",
+        query_hash="hash_with_opts",
+        data={
+            "flights": [
+                {
+                    "price": 8500,
+                    "legs": [{"airline": "IndiGo", "flight_number": "6E-101"}],
+                    "departure_airport": {"id": "MAA", "name": "Chennai"},
+                    "arrival_airport": {"id": "DEL", "name": "Delhi"},
+                    "booking_options": [
+                        {
+                            "seller": "IndiGo",
+                            "price": 8500,
+                            "booking_request": {
+                                "url": "https://www.goindigo.in/booking/post-pay",
+                                "post_data": {"booking_ref": "REF888"},
+                            },
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    flights_with_opts = normalize_flights(env_with_options)
+    assert len(flights_with_opts) == 1
+    fl_opt = flights_with_opts[0]
+    assert fl_opt.deep_link is not None
+    assert "/book/" in fl_opt.deep_link
+
+    # Print Example 1: /book/{id}
+    example_relay_url = fl_opt.deep_link if fl_opt.deep_link.startswith("http") else f"http://localhost:8000{fl_opt.deep_link}"
+    print(f"\n[EXAMPLE_1_RELAY_URL]: {example_relay_url}")
+
+    breakdown = BudgetBreakdown(
+        total_budget=Decimal("50000.00"),
+        currency="INR",
+        bucket_a_fixed=Decimal("8500.00"),
+        bucket_b_survival=Decimal("5000.00"),
+        bucket_c_activities=Decimal("5000.00"),
+        bucket_d_rescue=Decimal("5000.00"),
+        transport_cost=Decimal("8500.00"),
+        hotel_cost=Decimal("0.00"),
+        food_cost=Decimal("5000.00"),
+        local_transit_cost=Decimal("0.00"),
+        total_allocated=Decimal("23500.00"),
+        remaining_surplus=Decimal("26500.00"),
+    )
+
+    plan_text_with_opt = format_feasible_plan(
+        destination="Delhi",
+        days=3,
+        people=1,
+        breakdown=breakdown,
+        transport=fl_opt,
+        hotel=None,
+        itinerary=None,
+        is_pass_unlocked=True,
+    )
+    assert f"🔗 Booking: {fl_opt.deep_link}" in plan_text_with_opt
+
+    # Case B: No booking_options exist -> produces Google Flights search URL with real dates
+    fallback_search_url = build_safe_flight_search_url(
+        origin="Chennai",
+        destination="Delhi",
+        outbound_date="2026-11-08",
+        return_date="2026-11-10",
+        people=1,
+    )
+    # Print Example 2: Fallback search URL with real dates
+    print(f"[EXAMPLE_2_FALLBACK_URL_WITH_DATES]: {fallback_search_url}")
+    assert "https://www.google.com/travel/flights?q=Flights+to+DEL+from+MAA+on+2026-11-08+through+2026-11-10" == fallback_search_url
+
+    fl_fallback = FlightOption(
+        airline="Air India",
+        flight_number="AI-101",
+        price=Decimal("9000.00"),
+        deep_link=fallback_search_url,
+    )
+    plan_text_fallback = format_feasible_plan(
+        destination="Delhi",
+        days=3,
+        people=1,
+        breakdown=breakdown,
+        transport=fl_fallback,
+        hotel=None,
+        itinerary=None,
+        is_pass_unlocked=True,
+    )
+    assert f"🔗 Booking: {fallback_search_url}" in plan_text_fallback
+

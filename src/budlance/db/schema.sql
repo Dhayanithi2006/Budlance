@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS trip_passes (
     trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
     telegram_user_id BIGINT NOT NULL,
     telegram_chat_id BIGINT NOT NULL,
-    amount NUMERIC(10,2) NOT NULL DEFAULT 49.00,
+    amount NUMERIC(10,2) NOT NULL,
     currency VARCHAR(3) NOT NULL DEFAULT 'INR',
     provider VARCHAR(50) NOT NULL DEFAULT 'razorpay',
     payment_reference VARCHAR(255),
@@ -215,3 +215,19 @@ CREATE TABLE IF NOT EXISTS trip_passes (
 CREATE INDEX IF NOT EXISTS idx_trip_passes_trip ON trip_passes(trip_id);
 CREATE INDEX IF NOT EXISTS idx_trip_passes_chat ON trip_passes(telegram_chat_id);
 CREATE INDEX IF NOT EXISTS idx_trip_passes_ref ON trip_passes(payment_reference);
+
+-- 16. Payment Events (Distributed Idempotency & Concurrency Safety)
+CREATE TABLE IF NOT EXISTS payment_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id VARCHAR(255) NOT NULL,
+    trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    provider VARCHAR(50) NOT NULL DEFAULT 'stripe',
+    event_type VARCHAR(100) NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'COMPLETED', -- PROCESSING, COMPLETED, FAILED
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_payment_events_event_id UNIQUE(event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_events_event_id ON payment_events(event_id);
+CREATE INDEX IF NOT EXISTS idx_payment_events_trip_id ON payment_events(trip_id);

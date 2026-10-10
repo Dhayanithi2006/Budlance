@@ -88,13 +88,13 @@ async def test_openrouter_429_fast_fallback_to_heuristic():
     assert intent.days == 2
     assert intent.origin == "Chennai"
     assert intent.destination is None
-    # Maximum 2 attempts on 429
-    assert mock_http.post.call_count <= 2
+    # Finite attempts on 429 bounded by candidate models (no infinite retry loop)
+    assert mock_http.post.call_count <= 1 + len(client.fallback_models)
 
 
 @pytest.mark.asyncio
-async def test_openrouter_models_array_payload():
-    """Verify chat_completion sends models array with primary and fallback models."""
+async def test_openrouter_single_model_sequential_payload():
+    """Verify chat_completion sends single target model per request for clean application-level fallback."""
     mock_http = MagicMock(spec=httpx.AsyncClient)
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -108,9 +108,10 @@ async def test_openrouter_models_array_payload():
 
     call_kwargs = mock_http.post.call_args[1]
     payload = call_kwargs["json"]
-    assert "models" in payload
-    assert isinstance(payload["models"], list)
-    assert client.model in payload["models"]
+    assert "model" in payload
+    assert payload["model"] == client.model
+    # Clean application-level fallback: do NOT send redundant models array
+    assert "models" not in payload
 
 
 # =============================================================================

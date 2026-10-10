@@ -1,0 +1,138 @@
+[
+  {
+    "name": "Calangute Beach",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "24h",
+    "entry_fee_inr": 0,
+    "description": "The largest and most popular beach in North Goa stretching 7 km, lined with beach shacks and water-sports operators offering parasailing, jet-skiing, and banana boat rides.",
+    "location": "Goa",
+    "region": "North Goa",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Baga Beach",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "24h",
+    "entry_fee_inr": 0,
+    "description": "Vibrant North Goa beach known for its lively shack culture, nightlife strip, and water sports. The Baga River mouth creates a calm backwater pool perfect for early morning walks.",
+    "location": "Goa",
+    "region": "North Goa",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "Basilica of Bom Jesus",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "relatives",
+      "friends"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "09:00-18:30",
+    "entry_fee_inr": 0,
+    "description": "UNESCO World Heritage baroque church completed in 1605, housing the mortal remains of St. Francis Xavier in an ornate mausoleum of jasper, marble, and gilt-wood carved panels.",
+    "location": "Goa",
+    "region": "Old Goa",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Se Cathedral",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 1.0,
+    "opening_hours": "09:00-17:30",
+    "entry_fee_inr": 0,
+    "description": "Largest church in Asia, built by the Portuguese between 1562 and 1619 in Portuguese-Gothic style, featuring the famous Golden Bell, one of the finest bells in the world.",
+    "location": "Goa",
+    "region": "Old Goa",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Dudhsagar Waterfalls",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 5.0,
+    "opening_hours": "08:00-17:00",
+    "entry_fee_inr": 400,
+    "description": "Majestic four-tiered waterfall on the Goa-Karnataka border plunging 310 m, one of India tallest falls. Best experienced after monsoon when the milky-white cascade is at full flow.",
+    "location": "Goa",
+    "region": "South Goa",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Fort Aguada",
+    "category": "architecture",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "09:30-18:00",
+    "entry_fee_inr": 0,
+    "description": "Impressive 17th-century Portuguese sea fort built in 1612, offering panoramic views of the Arabian Sea and Mandovi River estuary from its iconic single-towered lighthouse.",
+    "location": "Goa",
+    "region": "North Goa",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Anjuna Flea Market",
+    "category": "culture",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "Wed 08:00-18:00",
+    "entry_fee_inr": 0,
+    "description": "Legendary Wednesday market running since the 1960s hippie era, offering Rajasthani textiles, silver jewellery, Kashmiri shawls, local spices, and hand-crafted Goan souvenirs.",
+    "location": "Goa",
+    "region": "North Goa",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Palolem Beach",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "family",
+      "friends"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "24h",
+    "entry_fee_inr": 0,
+    "description": "Crescent-shaped South Goa beach lined with colourful huts and palm trees, known for calmer seas, dolphin-watching boat trips, kayaking, and spectacular sunset views.",
+    "location": "Goa",
+    "region": "South Goa",
+    "best_time_of_day": "evening"
+  }
+]

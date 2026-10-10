@@ -241,6 +241,62 @@ class TripRepository:
             return True
         return False
 
+    def update_trip(
+        self,
+        trip_id: UUID,
+        budget_total: Decimal | None = None,
+        destination: str | None = None,
+        origin: str | None = None,
+        duration_days: int | None = None,
+        people_count: int | None = None,
+        status: TripStatus | str | None = None,
+        is_active: bool | None = None,
+    ) -> Trip | None:
+        """Update fields on an existing trip record and return updated Trip."""
+        trip = self.get_trip(trip_id)
+        if not trip:
+            return None
+
+        update_data: dict[str, Any] = {"updated_at": utc_now().isoformat()}
+        if budget_total is not None:
+            trip.budget_total = budget_total
+            update_data["budget_total"] = float(budget_total)
+        if destination is not None:
+            trip.destination = destination
+            update_data["destination"] = destination
+        if origin is not None:
+            trip.origin = origin
+            update_data["origin"] = origin
+        if duration_days is not None:
+            trip.duration_days = duration_days
+            update_data["duration_days"] = duration_days
+        if people_count is not None:
+            trip.people_count = people_count
+            update_data["people_count"] = people_count
+        if status is not None:
+            canonical_status = self._normalize_status(status)
+            trip.status = canonical_status
+            update_data["status"] = canonical_status
+        if is_active is not None:
+            trip.is_active = is_active
+            update_data["is_active"] = is_active
+
+        trip.updated_at = utc_now()
+
+        if self._client:
+            res = (
+                self._client.table("trips")
+                .update(update_data)
+                .eq("id", str(trip_id))
+                .execute()
+            )
+            if res.data:
+                return Trip.model_validate(res.data[0])
+            return trip
+
+        self._memory_store[trip_id] = trip
+        return trip
+
     def update_current_day(self, trip_id: UUID, current_day: int) -> bool:
         """Update the current day of the trip (1-indexed)."""
         if current_day < 1:

@@ -3,7 +3,7 @@
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,9 +19,11 @@ class Settings(BaseSettings):
 
     # Telegram Bot
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    telegram_bot_username: str = Field(default="budlance_bot", alias="TELEGRAM_BOT_USERNAME")
 
     # AI Gateway (OpenRouter or Google Gemini)
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
+    openrouter_fallback_api_key: str = Field(default="", alias="OPENROUTER_FALLBACK_API_KEY")
     openrouter_model: str = Field(
         default="anthropic/claude-3.5-sonnet", alias="OPENROUTER_MODEL"
     )
@@ -30,6 +32,7 @@ class Settings(BaseSettings):
 
     # Live Travel Search (SerpApi)
     serpapi_api_key: str = Field(default="", alias="SERPAPI_API_KEY")
+    serpapi_fallback_api_key: str = Field(default="", alias="SERPAPI_FALLBACK_API_KEY")
     serpapi_live_enabled: bool = Field(default=True, alias="SERPAPI_LIVE_ENABLED")
 
     # Database & Cache (Supabase PostgreSQL)
@@ -55,12 +58,75 @@ class Settings(BaseSettings):
         default=Decimal("0.10"),
         alias="RESCUE_RESERVE_PERCENT",
     )
+    reoptimization_material_threshold: Decimal = Field(
+        default=Decimal("500.00"),
+        alias="REOPTIMIZATION_MATERIAL_THRESHOLD",
+    )
+    budget_transport_warning_ratio: Decimal = Field(
+        default=Decimal("0.35"),
+        alias="BUDGET_TRANSPORT_WARNING_RATIO",
+    )
+    budget_hotel_warning_ratio: Decimal = Field(
+        default=Decimal("0.40"),
+        alias="BUDGET_HOTEL_WARNING_RATIO",
+    )
+    budget_survival_warning_ratio: Decimal = Field(
+        default=Decimal("0.30"),
+        alias="BUDGET_SURVIVAL_WARNING_RATIO",
+    )
+    budget_attractions_warning_ratio: Decimal = Field(
+        default=Decimal("0.15"),
+        alias="BUDGET_ATTRACTIONS_WARNING_RATIO",
+    )
+    budget_activities_ratio: Decimal = Field(
+        default=Decimal("0.05"),
+        alias="BUDGET_ACTIVITIES_RATIO",
+    )
+    budget_fallback_deficit_ratio: Decimal = Field(
+        default=Decimal("0.20"),
+        alias="BUDGET_FALLBACK_DEFICIT_RATIO",
+    )
     maps_search_radius_meters: int = Field(default=25000, alias="MAPS_SEARCH_RADIUS_METERS")
     maps_zoom_level: int = Field(default=14, alias="MAPS_ZOOM_LEVEL")
     openrouter_fallback_model: str = Field(
         default="meta-llama/llama-3.3-70b-instruct:free",
         alias="OPENROUTER_FALLBACK_MODEL",
     )
+    openrouter_fallback_models: list[str] = Field(
+        default_factory=lambda: [
+            "google/gemma-4-31b-it:free",
+            "nvidia/nemotron-3.5-lightning:free",
+        ],
+        alias="OPENROUTER_FALLBACK_MODELS",
+    )
+    openrouter_request_timeout_seconds: float = Field(
+        default=20.0,
+        alias="OPENROUTER_REQUEST_TIMEOUT_SECONDS",
+    )
+
+    @field_validator("openrouter_fallback_models", mode="before")
+    @classmethod
+    def _parse_fallback_models(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [m.strip() for m in v.split(",") if m.strip()]
+        if isinstance(v, (list, tuple)):
+            return [str(m).strip() for m in v if str(m).strip()]
+        return ["google/gemma-4-31b-it:free", "nvidia/nemotron-3.5-lightning:free"]
+
+    @property
+    def resolved_openrouter_models(self) -> list[str]:
+        """Ordered candidate models for OpenRouter: primary followed by fallbacks without duplicates."""
+        primary = self.openrouter_model.strip()
+        models = [primary]
+        for m in self.openrouter_fallback_models:
+            clean_m = m.strip()
+            if clean_m and clean_m not in models:
+                models.append(clean_m)
+        if not self.openrouter_fallback_models and getattr(self, "openrouter_fallback_model", None):
+            legacy_fb = self.openrouter_fallback_model.strip()
+            if legacy_fb and legacy_fb not in models:
+                models.append(legacy_fb)
+        return models
 
     # Destination-evaluation quota guards (applied even when live mode is enabled)
     max_live_candidates_per_request: int = Field(
@@ -83,7 +149,19 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     webhook_url: str = Field(default="", alias="WEBHOOK_URL")
+    public_base_url: str = Field(default="http://localhost:8000", alias="PUBLIC_BASE_URL")
     port: int = Field(default=8000, alias="PORT")
+
+    @property
+    def effective_public_base_url(self) -> str:
+        """Base URL for public links (booking relay, webhooks). Strips trailing slash."""
+        base = (self.public_base_url or "").strip().rstrip("/")
+        if (not base or base == "http://localhost:8000") and self.webhook_url:
+            # Derive from webhook_url if webhook is customized to a tunnel/domain
+            derived = self.webhook_url.split("/webhook")[0].rstrip("/")
+            if derived.startswith("http"):
+                return derived
+        return base or f"http://localhost:{self.port}"
 
     @property
     def has_telegram_token(self) -> bool:
@@ -92,8 +170,16 @@ class Settings(BaseSettings):
 
     @property
     def has_openrouter_credentials(self) -> bool:
-        """Check if OpenRouter API credentials are configured."""
-        return bool(self.openrouter_api_key and self.openrouter_api_key.strip())
+        """Check if OpenRouter API credentials (primary or fallback) are configured."""
+        return bool(
+            (self.openrouter_api_key and self.openrouter_api_key.strip())
+            or (self.openrouter_fallback_api_key and self.openrouter_fallback_api_key.strip())
+        )
+
+    @property
+    def has_openrouter_fallback(self) -> bool:
+        """Check if OpenRouter fallback credentials are configured."""
+        return bool(self.openrouter_fallback_api_key and self.openrouter_fallback_api_key.strip())
 
     @property
     def has_gemini_credentials(self) -> bool:
@@ -107,8 +193,16 @@ class Settings(BaseSettings):
 
     @property
     def has_serpapi_credentials(self) -> bool:
-        """Check if SerpApi credentials are configured."""
-        return bool(self.serpapi_api_key and self.serpapi_api_key.strip())
+        """Check if SerpApi credentials (primary or fallback) are configured."""
+        return bool(
+            (self.serpapi_api_key and self.serpapi_api_key.strip())
+            or (self.serpapi_fallback_api_key and self.serpapi_fallback_api_key.strip())
+        )
+
+    @property
+    def has_serpapi_fallback(self) -> bool:
+        """Check if SerpApi fallback credentials are configured."""
+        return bool(self.serpapi_fallback_api_key and self.serpapi_fallback_api_key.strip())
 
     @property
     def has_supabase_credentials(self) -> bool:
@@ -125,8 +219,13 @@ class Settings(BaseSettings):
 
     @property
     def has_stripe_credentials(self) -> bool:
-        """Check if Stripe API key is configured."""
-        return bool(self.stripe_api_key and self.stripe_api_key.strip())
+        """Check if Stripe API key is configured and valid for current environment."""
+        if not (self.stripe_api_key and self.stripe_api_key.strip()):
+            return False
+        # Guard: Reject live Stripe secret keys (sk_live_) when running in demo/non-production mode
+        if not self.is_production and self.stripe_api_key.strip().startswith("sk_live_"):
+            return False
+        return True
 
     @property
     def is_production(self) -> bool:
@@ -141,12 +240,16 @@ class Settings(BaseSettings):
             "port": self.port,
             "webhook_url": self.webhook_url or None,
             "openrouter_model": self.openrouter_model,
+            "openrouter_fallback_models": self.openrouter_fallback_models,
+            "resolved_openrouter_models": self.resolved_openrouter_models,
             "gemini_model": self.gemini_model,
             "has_telegram_token": self.has_telegram_token,
             "has_openrouter_credentials": self.has_openrouter_credentials,
+            "has_openrouter_fallback": self.has_openrouter_fallback,
             "has_gemini_credentials": self.has_gemini_credentials,
             "has_ai_credentials": self.has_ai_credentials,
             "has_serpapi_credentials": self.has_serpapi_credentials,
+            "has_serpapi_fallback": self.has_serpapi_fallback,
             "serpapi_live_enabled": self.serpapi_live_enabled,
             "has_supabase_credentials": self.has_supabase_credentials,
             "enable_trip_pass": self.enable_trip_pass,
@@ -175,3 +278,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Cached singleton instance of Settings."""
     return Settings()
+
+
+BudlanceSettings = Settings

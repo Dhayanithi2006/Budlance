@@ -1,0 +1,88 @@
+[
+  {
+    "name": "Promenade Beach & French Quarter Walk",
+    "category": "beach",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 2.0,
+    "opening_hours": "05:00-23:00",
+    "entry_fee_inr": 0,
+    "description": "Scenic 1.5 km seaside promenade along Goubert Avenue lined with French colonial villas, the French War Memorial, and Gandhi Statue.",
+    "location": "Pondicherry",
+    "region": "French Quarter",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Auroville Matrimandir & Peace Area",
+    "category": "culture",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "09:00-17:00",
+    "entry_fee_inr": 0,
+    "description": "Universal township and architectural wonder featuring the golden geodesic Matrimandir sphere, amphitheatre, and tranquil Banyan Tree gardens.",
+    "location": "Pondicherry",
+    "region": "Auroville",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Sri Aurobindo Ashram",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "08:00-12:00, 14:00-18:00",
+    "entry_fee_inr": 0,
+    "description": "Serene spiritual retreat founded in 1926 by Sri Aurobindo and Mirra Alfassa (The Mother), featuring the flower-covered Samadhi.",
+    "location": "Pondicherry",
+    "region": "French Quarter",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Paradise Beach & Chunnambar Boat House",
+    "category": "beach",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "09:00-17:00",
+    "entry_fee_inr": 150,
+    "description": "Pristine golden sand beach accessible via scenic backwater boat ride along the Chunnambar river, perfect for water sports and swimming.",
+    "location": "Pondicherry",
+    "region": "Chunnambar",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "White Town French Cafes & Bakery Trail",
+    "category": "food",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "16:00-22:00",
+    "entry_fee_inr": 0,
+    "description": "Charming heritage boulevard walk tasting authentic French croissants, artisanal sourdough pizzas, and crepes in colonial courtyard cafes.",
+    "location": "Pondicherry",
+    "region": "French Quarter",
+    "best_time_of_day": "evening"
+  }
+]

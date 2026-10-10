@@ -1,0 +1,106 @@
+[
+  {
+    "name": "Meenakshi Amman Temple",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "05:00-12:30, 16:00-21:30",
+    "entry_fee_inr": 0,
+    "description": "Historic Dravidian temple complex dedicated to Goddess Meenakshi and Sundareswarar, famous for its 14 towering gopurams adorned with detailed mythological sculptures.",
+    "location": "Madurai",
+    "region": "Old Town",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Thirumalai Nayakkar Mahal",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "09:00-17:00",
+    "entry_fee_inr": 50,
+    "description": "17th-century palace built by King Tirumala Nayaka, renowned for its Indo-Saracenic architectural style, colossal white stucco pillars, and evening light and sound show.",
+    "location": "Madurai",
+    "region": "Old Town",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Gandhi Memorial Museum",
+    "category": "culture",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "10:00-13:00, 14:00-17:45",
+    "entry_fee_inr": 10,
+    "description": "Historic palace-turned-museum housing Mahatma Gandhi's personal artifacts, freedom struggle exhibitions, and tranquil surrounding gardens.",
+    "location": "Madurai",
+    "region": "North Madurai",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Alagar Kovil & Pazhamudircholai",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "06:00-18:00",
+    "entry_fee_inr": 20,
+    "description": "Scenic hill temple dedicated to Lord Vishnu and Murugan set amid lush forested Western Ghat foothills, featuring natural springs and peaceful panoramic viewpoints.",
+    "location": "Madurai",
+    "region": "Alagar Hills",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Madurai Famous Jigarthanda & Heritage Food Walk",
+    "category": "food",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "17:00-22:30",
+    "entry_fee_inr": 0,
+    "description": "Culinary trail in the heritage bazaars around East Masi Street sampling authentic Madurai Jigarthanda, Bun Parotta, and Kari Dosa.",
+    "location": "Madurai",
+    "region": "Old Town",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "Vandiyur Mariamman Teppakulam",
+    "category": "scenic",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 1.0,
+    "opening_hours": "06:00-21:00",
+    "entry_fee_inr": 0,
+    "description": "Enormous temple tank with an island pavilion (Maiya Mandapam) in the center, a scenic and breezy gathering spot during twilight.",
+    "location": "Madurai",
+    "region": "East Madurai",
+    "best_time_of_day": "evening"
+  }
+]

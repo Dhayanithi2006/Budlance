@@ -11,10 +11,44 @@ logger = logging.getLogger(__name__)
 
 # Map common city names to regional/state attraction files
 DESTINATION_ALIASES: dict[str, str] = {
+    # Gujarat
     "ahmedabad": "gujarat",
     "gandhinagar": "gujarat",
     "patan": "gujarat",
     "mehsana": "gujarat",
+    # Bangalore / Bengaluru
+    "bengaluru": "bangalore",
+    "blr": "bangalore",
+    "bengaluru city": "bangalore",
+    # Goa
+    "north goa": "goa",
+    "south goa": "goa",
+    "panaji": "goa",
+    "panjim": "goa",
+    "margao": "goa",
+    "vasco": "goa",
+    "calangute": "goa",
+    "baga": "goa",
+    "anjuna": "goa",
+    "palolem": "goa",
+    "candolim": "goa",
+    # Kerala
+    "kerala": "kerala",
+    "kochi": "kerala",
+    "cochin": "kerala",
+    "ernakulam": "kerala",
+    "alleppey": "kerala",
+    "alappuzha": "kerala",
+    "munnar": "kerala",
+    "wayanad": "kerala",
+    "fort kochi": "kerala",
+    # Pondicherry
+    "pondicherry": "pondicherry",
+    "puducherry": "pondicherry",
+    # Madurai
+    "madurai": "madurai",
+    # Agra
+    "agra": "agra",
 }
 
 
@@ -97,17 +131,62 @@ class AttractionSelector:
         travel_party: str | None,
         interests: list[str] | None = None,
         days: int = 1,
+        places: list[Any] | None = None,
     ) -> list[Attraction]:
         """Filter, score, and select up to (days * 2) attractions for an itinerary.
 
         Rules:
-        - Returns [] for unknown destinations without error.
+        - Accepts live provider places (PlaceOption or dict) when available.
+        - Preserves unknown admission price as None (never fabricated as ₹0).
+        - Falls back to curated catalog if no live places exist (offline mode).
         - Filters by travel_party when specified.
         - Scores interest matches (+2) and party suitability (+1).
         - Balances best_time_of_day diversity (morning, afternoon, evening).
         - Limits output to max(1, days * 2) attractions.
         """
-        all_attractions = self._load_attractions(destination)
+        all_attractions: list[Attraction] = []
+        if places:
+            time_cycle = ["morning", "afternoon", "evening"]
+            for idx, p in enumerate(places):
+                p_name = getattr(p, "name", None) or (p.get("name") if isinstance(p, dict) else None)
+                if not p_name:
+                    continue
+                p_cat = getattr(p, "category", None) or (p.get("category") if isinstance(p, dict) else "attraction")
+                p_addr = getattr(p, "address", None) or (p.get("address") if isinstance(p, dict) else destination)
+                p_price_level = getattr(p, "price_level", None) or (p.get("price_level") if isinstance(p, dict) else None)
+
+                cat_low = str(p_cat or "").lower()
+                suitable = ["solo", "couple", "friends", "family", "relatives"]
+                if any(k in cat_low for k in ("bar", "pub", "club", "nightlife")):
+                    suitable = ["solo", "couple", "friends"]
+                elif any(k in cat_low for k in ("romantic", "honeymoon")):
+                    suitable = ["couple", "solo"]
+
+                fee: int | None = None
+                fee_unknown = True
+                if p_price_level and str(p_price_level).strip().lower() in ("0", "₹0", "free", "free entry"):
+                    fee = 0
+                    fee_unknown = False
+
+                all_attractions.append(
+                    Attraction(
+                        name=str(p_name),
+                        category=str(p_cat or "attraction"),
+                        suitable_for=suitable,
+                        typical_time_hours=2.0,
+                        opening_hours="09:00-18:00",
+                        entry_fee_inr=fee,
+                        is_fee_unknown=fee_unknown,
+                        description=f"Popular {p_cat or 'attraction'} in {p_addr or destination}.",
+                        location=str(p_addr or destination),
+                        best_time_of_day=time_cycle[idx % len(time_cycle)],
+                        source=str(getattr(p, "source", None) or "LIVE_PROVIDER"),
+                    )
+                )
+
+        if not all_attractions:
+            all_attractions = self._load_attractions(destination)
+
         if not all_attractions:
             return []
 

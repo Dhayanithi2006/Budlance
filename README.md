@@ -308,13 +308,13 @@ budlance/
 │   ├── db/           # Supabase client, domain models, repositories
 │   ├── schemas/      # Shared travel schemas (FlightOption, HotelOption, …)
 │   └── config.py     # Centralized pydantic-settings configuration
-├── tests/            # 119 pytest tests
-├── data/             # Static fallback datasets (trains, buses)
+├── tests/            # 746 pytest tests (100% offline baseline)
+├── data/             # Static fallback datasets (trains, buses, rate tables)
 ├── docs/
+│   ├── DEMO_SCRIPT.md    # Rigid, rehearsal-verified 5-scenario live demo script
 │   ├── PROJECT_SPEC.md   # Full architecture specification
 │   ├── ARCHITECTURE.md   # Developer architecture guide
-│   ├── SERPAPI_USAGE.md  # SerpApi integration details
-│   └── DEMO.md           # Hackathon demo script
+│   └── SERPAPI_USAGE.md  # SerpApi integration details
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
@@ -324,3 +324,25 @@ budlance/
 ├── uv.lock
 └── README.md
 ```
+
+---
+
+## 🎯 Demo Limits & Honest Boundaries (Pitch Guidelines)
+
+- **Provider Direct Payments**: Budlance plans and hands off; travelers pay airlines, hotels, and rail operators directly via authoritative deep links.
+- **Train Distance Heuristics**: Indian Railways trains use standard fare and distance rate tables because IRCTC does not offer a public booking API.
+- **Payment Sandbox**: Payments run on Stripe test rails (`cs_test_...`) and immediate pass bypass (`/demo_pass`).
+- **Prototype Scope**: Budlance is a production-grade hackathon prototype designed for reverse-budget constraint planning.
+
+---
+
+## 🚀 Product Roadmap (Next Phase)
+
+1. **Latent Space & Representation Learning**:
+   - Replace rigid keyword interest tagging with dense vector embeddings and **cosine similarity in latent space** (e.g. mapping nuanced user desires like *"quiet misty pine forests"* to hidden hill stations and attractions).
+2. **Razorpay & UPI Intent**:
+   - Instant UPI payment flows via Telegram Web App and dynamic QR codes for seamless Indian traveler checkout.
+3. **Official IRCTC Agent Integration**:
+   - Direct Indian Railways PNR availability queries and instant tatkal seat reservation handoffs.
+4. **Seasonal Price Forecasting**:
+   - Machine-learned demand curves predicting off-season budget windows across 50+ domestic corridors.

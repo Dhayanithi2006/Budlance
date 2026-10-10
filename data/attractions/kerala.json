@@ -1,0 +1,175 @@
+[
+  {
+    "name": "Fort Kochi Chinese Fishing Nets",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 1.5,
+    "opening_hours": "06:00-19:00",
+    "entry_fee_inr": 0,
+    "description": "Iconic fixed cantilevered Chinese fishing nets (Cheena Vala) lining the Fort Kochi promenade, best viewed during morning fish hauling or seaside sunrise walks.",
+    "location": "Kerala",
+    "region": "Fort Kochi",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Mattancherry Dutch Palace & Jewish Synagogue",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 2.0,
+    "opening_hours": "10:00-17:00",
+    "entry_fee_inr": 50,
+    "description": "Historical 16th-century Portuguese and Dutch palace with exquisite Ramayana murals, alongside the historic Paradesi Synagogue and antique spice markets in Jew Town.",
+    "location": "Kerala",
+    "region": "Fort Kochi",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Kerala Kathakali Centre",
+    "category": "culture",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 2.0,
+    "opening_hours": "17:00-20:00",
+    "entry_fee_inr": 400,
+    "description": "Intimate cultural theatre offering traditional Kathakali classical dance-drama, authentic facial makeup demonstration, and ancient Kalaripayattu martial arts shows.",
+    "location": "Kerala",
+    "region": "Fort Kochi",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "Alleppey Backwaters Shikara Cruise",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "07:00-18:00",
+    "entry_fee_inr": 500,
+    "description": "Traditional wooden shikara boat ride through the tranquil palm-fringed canals, Punnamada Lake, and serene rural paddy backwaters of Alappuzha.",
+    "location": "Kerala",
+    "region": "Alleppey",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Marari Beach & Fishermen Cove",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "24h",
+    "entry_fee_inr": 0,
+    "description": "Pristine white sand coastal beach near Alleppey, famous for tranquil coconut groves, peaceful sea views, and fresh coastal seafood stalls.",
+    "location": "Kerala",
+    "region": "Alleppey",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Marine Drive Promenade & Cochin Harbour Cruise",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 2.0,
+    "opening_hours": "06:00-22:00",
+    "entry_fee_inr": 100,
+    "description": "Scenic pedestrian boulevard facing the serene Vembanad lake backwaters in downtown Kochi, with sunset ferry rides past Bolgatty Island and Willingdon Island.",
+    "location": "Kerala",
+    "region": "Ernakulam",
+    "best_time_of_day": "evening"
+  },
+  {
+    "name": "Hill Palace Museum (Tripunithura)",
+    "category": "heritage",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family",
+      "relatives"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "09:30-16:30",
+    "entry_fee_inr": 100,
+    "description": "Largest archaeological museum in Kerala spread over 54 acres, featuring 49 traditional royal buildings, royal throne, crown jewels, and deer park.",
+    "location": "Kerala",
+    "region": "Ernakulam",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "Munnar Tea Gardens & Tata Tea Museum",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "09:00-17:00",
+    "entry_fee_inr": 150,
+    "description": "Sprawling emerald green tea estates in the Western Ghats with factory demonstrations of CTC tea processing, tea tasting, and misty mountain lookouts.",
+    "location": "Kerala",
+    "region": "Munnar",
+    "best_time_of_day": "afternoon"
+  },
+  {
+    "name": "Eravikulam National Park (Rajamalai)",
+    "category": "nature",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 3.0,
+    "opening_hours": "07:30-16:00",
+    "entry_fee_inr": 200,
+    "description": "UNESCO World Heritage sanctuary at 2,000m altitude home to the endangered Nilgiri Tahr mountain goat, Neelakurinji flower blooms, and view of Anamudi Peak.",
+    "location": "Kerala",
+    "region": "Munnar",
+    "best_time_of_day": "morning"
+  },
+  {
+    "name": "LuLu Mall & Broadway Kochi Street Bazaar",
+    "category": "leisure",
+    "suitable_for": [
+      "solo",
+      "couple",
+      "friends",
+      "family"
+    ],
+    "typical_time_hours": 2.5,
+    "opening_hours": "10:00-23:00",
+    "entry_fee_inr": 0,
+    "description": "Vibrant shopping and dining destination offering regional Malabar culinary feasts, Kerala banana chips, cardamom and black pepper spices, and souvenir shopping.",
+    "location": "Kerala",
+    "region": "Ernakulam",
+    "best_time_of_day": "evening"
+  }
+]

@@ -33,6 +33,77 @@ def test_serpapi_gateway_has_credentials_flag():
     gw_valid = SerpApiGateway(api_key="valid_test_key_123", serpapi_live_enabled=True)
     assert gw_valid.has_credentials is True
 
+    gw_fallback = SerpApiGateway(api_key="", fallback_api_key="valid_fallback_key_456", serpapi_live_enabled=True)
+    assert gw_fallback.has_credentials is True
+
+
+@pytest.mark.asyncio
+async def test_serpapi_failover_to_fallback_on_auth_error():
+    """execute_search must automatically failover to fallback key when primary key fails with auth error."""
+    mock_client = AsyncMock()
+
+    # Call 1 with primary key returns 401 Invalid Key
+    resp_primary = MagicMock()
+    resp_primary.status_code = 401
+    resp_primary.json.return_value = {"error": "Invalid API key"}
+    resp_primary.text = '{"error": "Invalid API key"}'
+
+    # Call 2 with fallback key returns 200 Success
+    resp_fallback = MagicMock()
+    resp_fallback.status_code = 200
+    resp_fallback.json.return_value = {"search_metadata": {"status": "Success"}, "results": [1, 2, 3]}
+
+    mock_client.get.side_effect = [resp_primary, resp_fallback]
+
+    gw = SerpApiGateway(
+        api_key="primary_bad_key",
+        fallback_api_key="fallback_good_key",
+        http_client=mock_client,
+        serpapi_live_enabled=True,
+    )
+    assert gw.has_credentials is True
+
+    result = await gw.execute_search("google_flights", {"q": "Chennai to Goa"})
+    assert result["search_metadata"]["status"] == "Success"
+    assert mock_client.get.call_count == 2
+
+    # Verify keys used in respective calls
+    call_args_list = mock_client.get.call_args_list
+    assert call_args_list[0].kwargs["params"]["api_key"] == "primary_bad_key"
+    assert call_args_list[1].kwargs["params"]["api_key"] == "fallback_good_key"
+
+
+@pytest.mark.asyncio
+async def test_serpapi_failover_to_fallback_on_rate_limit():
+    """execute_search must automatically failover to fallback key when primary key hits quota limit."""
+    mock_client = AsyncMock()
+
+    # Call 1 with primary key returns 429
+    resp_primary = MagicMock()
+    resp_primary.status_code = 429
+    resp_primary.json.return_value = {"error": "Your monthly search limit has been reached"}
+    resp_primary.text = '{"error": "Your monthly search limit has been reached"}'
+
+    # Call with fallback key returns 200 Success
+    resp_fallback = MagicMock()
+    resp_fallback.status_code = 200
+    resp_fallback.json.return_value = {"search_metadata": {"status": "Success"}, "results": ["recovered"]}
+
+    mock_client.get.side_effect = [resp_primary, resp_fallback]
+
+    gw = SerpApiGateway(
+        api_key="primary_rate_limited",
+        fallback_api_key="fallback_working_key",
+        http_client=mock_client,
+        serpapi_live_enabled=True,
+    )
+
+    result = await gw.execute_search("google_flights", {"q": "Delhi to Mumbai"}, max_retries=1)
+    assert result["results"] == ["recovered"]
+    assert mock_client.get.call_count == 2
+    assert mock_client.get.call_args_list[1].kwargs["params"]["api_key"] == "fallback_working_key"
+
+
 
 @pytest.mark.asyncio
 async def test_serpapi_execute_search_raises_auth_error_without_network():

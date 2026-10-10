@@ -134,7 +134,7 @@ def is_meaningful_reoptimization_trigger(
     ledger_repo: LedgerRepository,
     day_completed: bool = False,
     recent_expense_amount: Decimal | None = None,
-    material_threshold: Decimal = Decimal("500.00"),
+    material_threshold: Decimal | None = None,
 ) -> bool:
     """Determine whether an expense or lifecycle event warrants re-optimization.
 
@@ -143,6 +143,10 @@ def is_meaningful_reoptimization_trigger(
     """
     if day_completed:
         return True
+
+    if material_threshold is None:
+        from budlance.config import get_settings
+        material_threshold = get_settings().reoptimization_material_threshold
 
     # If an explicit small expense is reported, verify whether it caused a material overrun
     if recent_expense_amount is not None and recent_expense_amount < material_threshold:
