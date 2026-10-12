@@ -9,7 +9,7 @@ import logging
 import urllib.parse
 from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from telegram import Update
 from budlance import __version__
 from budlance.config import get_settings
@@ -17,6 +17,118 @@ from budlance.config import get_settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/", tags=["System"])
+async def root(request: Request) -> Any:
+    """Root landing endpoint providing system overview and endpoint index."""
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budlance AI Travel Agent - Online</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }}
+        .card {{
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 540px;
+            width: 100%;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            text-align: center;
+        }}
+        .badge {{
+            display: inline-block;
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }}
+        h1 {{
+            font-size: 28px;
+            margin: 0 0 12px 0;
+            color: #ffffff;
+        }}
+        p {{
+            color: #94a3b8;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }}
+        .links {{
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }}
+        .btn {{
+            display: block;
+            text-align: center;
+            padding: 12px 20px;
+            background: #2563eb;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }}
+        .btn:hover {{ background: #1d4ed8; }}
+        .btn-secondary {{
+            background: rgba(255, 255, 255, 0.08);
+            color: #cbd5e1;
+        }}
+        .btn-secondary:hover {{ background: rgba(255, 255, 255, 0.15); }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <span class="badge">🟢 System Online</span>
+        <h1>🌴 Budlance API Gateway</h1>
+        <p>Reverse-budget AI travel agent backend gateway is active and serving requests.</p>
+        <div class="links">
+            <a href="/docs" class="btn">Swagger API Docs</a>
+            <a href="/health" class="btn btn-secondary">System Health Check</a>
+        </div>
+    </div>
+</body>
+</html>"""
+        return HTMLResponse(content=html_content)
+
+    return {
+        "name": "Budlance API",
+        "description": "Reverse-budget AI travel agent backend gateway",
+        "version": __version__,
+        "status": "online",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "webhook": "/webhook",
+        },
+    }
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/health", tags=["System"])

@@ -288,6 +288,86 @@ class BudlanceOrchestrator:
             self._chat_locks[chat_id] = asyncio.Lock()
         return self._chat_locks[chat_id]
 
+    def _save_cached_trip_booking(self, trip_id: UUID, transport: Any, hotel: Any) -> None:
+        """Cache transport and hotel in memory and persist to disk for durability across process restarts."""
+        self._cached_trip_bookings[trip_id] = (transport, hotel)
+        try:
+            import json
+            from pathlib import Path
+            cache_file = Path(".budlance_trip_bookings_cache.json")
+            data = {}
+            if cache_file.exists():
+                try:
+                    data = json.loads(cache_file.read_text(encoding="utf-8"))
+                except Exception:
+                    data = {}
+
+            t_dump = None
+            t_type = None
+            if transport is not None:
+                if hasattr(transport, "model_dump"):
+                    t_dump = transport.model_dump(mode="json")
+                    t_type = "flight" if hasattr(transport, "airline") or getattr(transport, "transit_type", None) is None else "transit"
+                elif isinstance(transport, dict):
+                    t_dump = transport
+                    t_type = "flight" if "airline" in transport else "transit"
+
+            h_dump = None
+            if hotel is not None:
+                if hasattr(hotel, "model_dump"):
+                    h_dump = hotel.model_dump(mode="json")
+                elif isinstance(hotel, dict):
+                    h_dump = hotel
+
+            data[str(trip_id)] = {
+                "t_type": t_type,
+                "transport": t_dump,
+                "hotel": h_dump,
+            }
+            cache_file.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+        except Exception as exc:
+            logger.debug("[ORCHESTRATOR] Failed to save trip bookings cache to disk: %s", exc)
+
+    def _load_cached_trip_booking(self, trip_id: UUID) -> tuple[Any, Any]:
+        """Retrieve transport and hotel from memory or persistent disk cache."""
+        if trip_id in self._cached_trip_bookings:
+            return self._cached_trip_bookings[trip_id]
+
+        try:
+            import json
+            from pathlib import Path
+            from budlance.schemas.travel import FlightOption, TransitOption, HotelOption
+            cache_file = Path(".budlance_trip_bookings_cache.json")
+            if cache_file.exists():
+                data = json.loads(cache_file.read_text(encoding="utf-8"))
+                rec = data.get(str(trip_id))
+                if rec:
+                    t_type = rec.get("t_type")
+                    t_raw = rec.get("transport")
+                    h_raw = rec.get("hotel")
+                    transport = None
+                    hotel = None
+                    if t_raw:
+                        try:
+                            if t_type == "flight":
+                                transport = FlightOption.model_validate(t_raw)
+                            else:
+                                transport = TransitOption.model_validate(t_raw)
+                        except Exception as exc:
+                            logger.debug("[ORCHESTRATOR] Could not validate cached transport: %s", exc)
+                    if h_raw:
+                        try:
+                            hotel = HotelOption.model_validate(h_raw)
+                        except Exception as exc:
+                            logger.debug("[ORCHESTRATOR] Could not validate cached hotel: %s", exc)
+
+                    self._cached_trip_bookings[trip_id] = (transport, hotel)
+                    return (transport, hotel)
+        except Exception as exc:
+            logger.debug("[ORCHESTRATOR] Failed to load trip bookings cache from disk: %s", exc)
+
+        return (None, None)
+
     @property
     def is_live_mode(self) -> bool:
         """Check whether orchestrator is operating in live SerpApi mode.
@@ -402,11 +482,15 @@ class BudlanceOrchestrator:
                 "the plan looks good. i want the complete itinerary.", "the plan looks good. i want the complete itinerary",
                 "the plan looks good, i want the complete itinerary", "i want the complete itinerary",
                 "complete itinerary", "unlock itinerary", "unlock the complete itinerary",
+                "confirm plan", "confirm the plan", "confirm", "i confirm", "i confirm this plan",
+                "i confirm the plan", "confirm trip", "confirm my plan", "confirm it", "yes confirm",
+                "proceed to pay", "pay fee", "looks good", "plan looks good", "confirm this",
             )
             or clean_lower.startswith(("/trip_pass ", "/pass "))
             or ("complete itinerary" in clean_lower and "want" in clean_lower)
             or ("complete itinerary" in clean_lower and "good" in clean_lower)
             or ("unlock" in clean_lower and "itinerary" in clean_lower)
+            or ("confirm" in clean_lower and ("plan" in clean_lower or "trip" in clean_lower or clean_lower == "confirm"))
         ):
             return await self._handle_pass_status_command(chat_id)
 
@@ -1281,7 +1365,7 @@ class BudlanceOrchestrator:
                                 status="PLANNING",
                                 is_active=True,
                             )
-                            self._cached_trip_bookings[planning_trip.id] = (selected_transport, baseline_hotel)
+                            self._save_cached_trip_booking(planning_trip.id, selected_transport, baseline_hotel)
                             try:
                                 self.ledger_manager.initialize_ledger(
                                     trip_id=planning_trip.id,
@@ -1406,6 +1490,7 @@ class BudlanceOrchestrator:
                                     hotel_is_estimate=hotel_is_estimate,
                                     highlights_note=highlights_note,
                                     add_day_statement=add_day_statement,
+                                    is_preview=self.enable_trip_pass,
                                 ),
                             )
                         else:
@@ -1868,6 +1953,32 @@ class BudlanceOrchestrator:
             generated_itin = None
 
             if getattr(resolved_intent, "replace_activity_target", None):
+                if self.enable_trip_pass and chat_id not in self._demo_bypass_chats:
+                    pass_rec = self.trip_pass_repo.get_by_trip_id(trip.id)
+                    if not pass_rec or not pass_rec.is_unlocked:
+                        session = await self.payment_service.create_checkout_session(
+                            trip_id=trip.id,
+                            chat_id=chat_id,
+                            user_id=trip.user_id,
+                        )
+                        fee_str = f"₹{session.amount:,.0f}" if session.currency == "INR" else f"{session.currency} {session.amount:,.2f}"
+                        budget_str = f"₹{trip.budget_total:,.0f}" if trip.budget_total else "your travel budget"
+                        demo_line = "\n\n_(Judge/Demo review: send `/demo_pass` to unlock instantly without payment)_" if not get_settings().is_production else ""
+                        return OrchestrationResult(
+                            trip_id=trip.id,
+                            status="PASS_LOCKED",
+                            message_text=(
+                                "🔒 *Itinerary Customization is Locked*\n\n"
+                                f"Customizing individual activities and modifying your day-by-day itinerary require an unlocked Budlance Trip Pass ({fee_str}).\n\n"
+                                f"This service fee is separate from your {budget_str} travel budget.\n\n"
+                                f"👉 [Proceed to Secure Checkout]({session.checkout_url})\n\n"
+                                f"_(Reply 'paid' after completing payment to verify and unlock!)_{demo_line}"
+                            ),
+                            is_pass_unlocked=False,
+                            pass_status=pass_rec.status if pass_rec else "FREE",
+                            checkout_url=session.checkout_url,
+                        )
+
                 from budlance.itinerary.models import GeneratedItinerary, ItineraryDay
                 from budlance.itinerary.replacer import replace_itinerary_item
 
@@ -2288,16 +2399,27 @@ class BudlanceOrchestrator:
         if self.enable_trip_pass and chat_id not in self._demo_bypass_chats:
             pass_rec = self.trip_pass_repo.get_by_trip_id(active_trip.id)
             if not pass_rec or not pass_rec.is_unlocked:
+                session = await self.payment_service.create_checkout_session(
+                    trip_id=active_trip.id,
+                    chat_id=chat_id,
+                    user_id=active_trip.user_id,
+                )
+                fee_str = f"₹{session.amount:,.0f}" if session.currency == "INR" else f"{session.currency} {session.amount:,.2f}"
+                budget_str = f"₹{active_trip.budget_total:,.0f}" if active_trip.budget_total else "your travel budget"
+                demo_line = "\n\n_(Judge/Demo review: send `/demo_pass` to unlock instantly without payment)_" if not get_settings().is_production else ""
                 return OrchestrationResult(
                     trip_id=active_trip.id,
                     status="PASS_LOCKED",
                     message_text=(
-                        "In-Trip Companion is locked.\n\n"
-                        "Live contextual assistance requires an active Budlance Trip Pass.\n"
-                        "Send `/trip_pass` to unlock for Rs 49, or use `/demo_pass` for demo evaluation."
+                        "🔒 *In-Trip Companion & Ticketing Locked*\n\n"
+                        f"Personal trip guidance, live assistance, and movie ticketing require an active Budlance Trip Pass ({fee_str}).\n\n"
+                        f"This service fee is separate from your {budget_str} travel budget.\n\n"
+                        f"👉 [Proceed to Secure Checkout]({session.checkout_url})\n\n"
+                        f"_(Reply 'paid' after completing payment to verify and unlock!)_{demo_line}"
                     ),
                     is_pass_unlocked=False,
                     pass_status=pass_rec.status if pass_rec else "FREE",
+                    checkout_url=session.checkout_url,
                 )
 
         q_type = getattr(ai_result, "in_trip_query_type", None) or self.ai_service._extract_in_trip_query_type(clean_text)
@@ -3625,7 +3747,7 @@ class BudlanceOrchestrator:
         interest_note: str | None = None,
     ) -> OrchestrationResult:
         # Cache bookings for this trip so unlock/demo commands have access to booking details
-        self._cached_trip_bookings[trip_id] = (transport, hotel)
+        self._save_cached_trip_booking(trip_id, transport, hotel)
 
         is_pass_unlocked = True
         pass_status = "PAID"
@@ -3807,23 +3929,50 @@ class BudlanceOrchestrator:
                 remaining_surplus=rem_surplus,
             )
 
-        cached_trans, cached_hot = self._cached_trip_bookings.get(trip.id, (None, None))
+        cached_trans, cached_hot = self._load_cached_trip_booking(trip.id)
         if cached_trans is None and breakdown and breakdown.transport_cost > Decimal("0.00"):
-            from budlance.schemas.travel import TransitOption
-            cached_trans = TransitOption(
-                airline=None,
-                name_or_operator="Estimated train fare (distance-based)",
-                price=breakdown.transport_cost,
-                transit_type="train",
-                deep_link="https://www.irctc.co.in/nget/train-search",
+            latest_intent = None
+            try:
+                latest_intent = self.intent_repo.get_trip_intent(trip.id)
+            except Exception:
+                pass
+            is_flight = (
+                (latest_intent is not None and getattr(latest_intent, "transport_mode", None) == "flight")
+                or (trip.origin and trip.destination and trip.origin.lower() != trip.destination.lower() and breakdown.transport_cost > Decimal("3000.00"))
             )
+            orig_str = trip.origin or (latest_intent.origin if latest_intent else None) or "Origin"
+            dest_str = trip.destination or (latest_intent.destination if latest_intent else None) or "Destination"
+            if is_flight:
+                import urllib.parse
+                from budlance.schemas.travel import FlightOption
+                q_str = f"Flights from {orig_str} to {dest_str}"
+                cached_trans = FlightOption(
+                    airline="Airline Flight",
+                    price=breakdown.transport_cost,
+                    source=DataSource.ESTIMATED,
+                    deep_link=f"https://www.google.com/travel/flights?q={urllib.parse.quote_plus(q_str)}",
+                )
+            else:
+                from budlance.schemas.travel import TransitOption
+                cached_trans = TransitOption(
+                    transit_type="train",
+                    origin=orig_str,
+                    destination=dest_str,
+                    name_or_operator="Estimated train fare (distance-based)",
+                    price=breakdown.transport_cost,
+                )
         if cached_hot is None and breakdown and breakdown.hotel_cost > Decimal("0.00"):
+            import urllib.parse
             from budlance.schemas.travel import HotelOption
+            dest_str = trip.destination or "Destination"
+            stay_nights = max(1, trip.duration_days - 1) if (trip.duration_days and trip.duration_days > 1) else 1
             cached_hot = HotelOption(
-                name=f"Standard Hotel in {trip.destination or 'Destination'}",
+                name=f"Standard Hotel in {dest_str}",
                 total_price=breakdown.hotel_cost,
-                price_per_night=breakdown.hotel_cost / Decimal(max(1, trip.duration_days)),
-                deep_link=f"https://www.google.com/travel/hotels/{trip.destination or ''}",
+                price_per_night=breakdown.hotel_cost / Decimal(stay_nights),
+                nights=stay_nights,
+                deep_link=f"https://www.google.com/travel/hotels?q=Hotels+in+{urllib.parse.quote_plus(dest_str)}",
+                source=DataSource.ESTIMATED,
             )
 
         if breakdown and itin_record:
@@ -3952,7 +4101,12 @@ class BudlanceOrchestrator:
             except Exception:
                 trip = None
         if not trip:
-            trip = self.trip_repo.get_planning_trip(chat_id) or self.trip_repo.get_active_trip(chat_id)
+            p_trip = self.trip_repo.get_planning_trip(chat_id)
+            a_trip = self.trip_repo.get_active_trip(chat_id)
+            if p_trip and a_trip:
+                trip = max([p_trip, a_trip], key=lambda t: t.created_at)
+            else:
+                trip = p_trip or a_trip
 
         if not trip:
             return OrchestrationResult(
@@ -3970,6 +4124,7 @@ class BudlanceOrchestrator:
             user_id=trip.user_id,
         )
 
+        self._demo_bypass_chats.add(chat_id)
         return await self._format_unlocked_trip_result(trip, chat_id, pass_record, is_demo=True)
 
     async def _handle_unlocked_links_request(self, chat_id: int, trip: Any, pass_record: Any) -> OrchestrationResult:
@@ -3978,7 +4133,12 @@ class BudlanceOrchestrator:
 
     async def _handle_booking_links_request(self, chat_id: int, target: str = "all") -> OrchestrationResult:
         """Handle request for booking links (hotel, flight, or all) adhering strictly to Step 3 reply rules."""
-        trip = self.trip_repo.get_planning_trip(chat_id) or self.trip_repo.get_active_trip(chat_id)
+        p_trip = self.trip_repo.get_planning_trip(chat_id)
+        a_trip = self.trip_repo.get_active_trip(chat_id)
+        if p_trip and a_trip:
+            trip = max([p_trip, a_trip], key=lambda t: t.created_at)
+        else:
+            trip = p_trip or a_trip
         if not trip:
             return OrchestrationResult(
                 status="NO_TRIP",
@@ -4009,7 +4169,7 @@ class BudlanceOrchestrator:
                 is_pass_unlocked=False,
             )
 
-        cached_trans, cached_hot = self._cached_trip_bookings.get(trip.id, (None, None))
+        cached_trans, cached_hot = self._load_cached_trip_booking(trip.id)
         itin = self.itinerary_repo.get_itinerary(trip.id)
         dest = trip.destination or "Destination"
 

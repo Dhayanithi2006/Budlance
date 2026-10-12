@@ -49,3 +49,8 @@ class OrchestrationResult(BaseModel):
         description="Formatted, user-readable response text ready for Telegram delivery.",
     )
     error: str | None = None
+
+    @property
+    def itinerary(self) -> GeneratedItinerary | None:
+        """Backwards compatibility alias for generated_itinerary."""
+        return self.generated_itinerary

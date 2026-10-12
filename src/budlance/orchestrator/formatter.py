@@ -1041,9 +1041,10 @@ def format_feasible_transport(
     hotel_is_estimate: bool = True,
     highlights_note: str | None = None,
     add_day_statement: str | None = None,
+    is_preview: bool = False,
 ) -> str:
     """Format an immediate feasible transport preference response."""
-    if transfer_info:
+    if transfer_info or is_preview:
         dest_title = (destination or "Destination").strip().title()
         nearest_city = transfer_info.get("nearest_city", dest_title) if transfer_info else dest_title
         trans_hours = transfer_info.get("transfer_hours", 3.5) if transfer_info else 0
@@ -1076,10 +1077,18 @@ def format_feasible_transport(
         b_val = total_budget or (estimated_cost + remaining_budget)
         left_val = b_val - tot_planned
 
-        if transfer_info:
-            flight_label = f"- Flights {orig_title} to {nearest_city} and back (estimate): Rs {int(round(f_cost)):,}" if flight_is_estimate else f"- Flights {orig_title} to {nearest_city} and back: Rs {int(round(f_cost)):,}"
+        m_mode = (transport_mode or "flight").lower()
+        if m_mode == "train":
+            cls_str = f" ({transport_class.upper()})" if transport_class else ""
+            mode_desc = f"Train{cls_str} {orig_title} to {dest_title} and back"
+        elif m_mode == "bus":
+            mode_desc = f"Bus {orig_title} to {dest_title} and back"
+        elif transfer_info:
+            mode_desc = f"Flights {orig_title} to {nearest_city} and back"
         else:
-            flight_label = f"- Flights {orig_title} to {dest_title} and back (estimate): Rs {int(round(f_cost)):,}" if flight_is_estimate else f"- Flights {orig_title} to {dest_title} and back: Rs {int(round(f_cost)):,}"
+            mode_desc = f"Flights {orig_title} to {dest_title} and back"
+
+        flight_label = f"- {mode_desc} (estimate): Rs {int(round(f_cost)):,}" if flight_is_estimate else f"- {mode_desc}: Rs {int(round(f_cost)):,}"
 
         stay_label = f"- Stay, {nights_val} night{'s' if nights_val > 1 else ''} (estimate): Rs {int(round(h_cost)):,}" if hotel_is_estimate else f"- Stay, {nights_val} night{'s' if nights_val > 1 else ''}: Rs {int(round(h_cost)):,}"
 
@@ -1120,6 +1129,7 @@ def format_feasible_transport(
 
         lines.append("")
         lines.append("Change anything first, or unlock the full plan with flight and hotel links for Rs 49.")
+        lines.append("Reply 'Confirm plan' to proceed to checkout.")
         return "\n".join(lines)
 
     if transport_mode == "flight" and transport_class in ("1ac", "2ac", "3ac", "sleeper"):

@@ -21,6 +21,7 @@ def isolate_unit_test_environment(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "")
     monkeypatch.setenv("OPENROUTER_FALLBACK_API_KEY", "")
     monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("ENABLE_TRIP_PASS", "false")
     get_settings.cache_clear()
     get_supabase_client.cache_clear()
     yield

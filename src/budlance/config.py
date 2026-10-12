@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default="", alias="DATABASE_URL")
 
     # Trip Pass Monetization & Payments
-    enable_trip_pass: bool = Field(default=False, alias="ENABLE_TRIP_PASS")
+    enable_trip_pass: bool = Field(default=True, alias="ENABLE_TRIP_PASS")
     trip_pass_amount: Decimal = Field(default=Decimal("49.00"), alias="TRIP_PASS_AMOUNT")
     trip_pass_currency: str = Field(default="INR", alias="TRIP_PASS_CURRENCY")
 

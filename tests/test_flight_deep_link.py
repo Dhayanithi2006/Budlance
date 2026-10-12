@@ -103,6 +103,7 @@ def orchestrator():
         itinerary_generator=itinerary_generator,
         ledger_manager=ledger_manager,
         rescue_service=rescue_service,
+        enable_trip_pass=False,
     )
 
 
