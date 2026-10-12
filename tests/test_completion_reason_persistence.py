@@ -308,7 +308,7 @@ async def test_g_existing_reconciliation_remains_unchanged(completion_handler, a
     assert rec_res.recorded_actual_spend == Decimal("22000.00")
     assert rec_res.planned_budget == Decimal("25000.00")
     assert rec_res.final_variance == Decimal("3000.00")
-    assert "Difference: ₹3,000 under planned budget" in rec_res.message_text
+    assert "Difference: Rs 3,000 under planned budget" in rec_res.message_text
 
     # Verify standard default reason preserved when none specified
     reloaded = memory_repos["trip_repo"].get_trip(active_trip.id)

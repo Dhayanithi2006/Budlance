@@ -181,7 +181,7 @@ async def test_1_trip_complete_with_active_trip_creates_prompt(completion_handle
 
     assert res.status == "PENDING_RECONCILIATION"
     assert res.trip_id == active_trip.id
-    assert "Your planned trip budget was ₹20,000" in res.message_text
+    assert "Your planned trip budget was Rs 20,000" in res.message_text
     assert "Would you like to record your final actual spend? You can also say skip." in res.message_text
 
     # Conversation state must be set to LOG_ACTUAL_SPEND
@@ -213,7 +213,7 @@ async def test_3_valid_final_actual_amount_reconciliation(completion_handler, ac
     assert rec_res.recorded_actual_spend == Decimal("18450.00")
     assert rec_res.planned_budget == Decimal("20000.00")
     assert rec_res.final_variance == Decimal("1550.00")
-    assert "Difference: ₹1,550 under planned budget" in rec_res.message_text
+    assert "Difference: Rs 1,550 under planned budget" in rec_res.message_text
 
     # Verify trip status and active pointer cleared
     trip = memory_repos["trip_repo"].get_trip(active_trip.id)
@@ -342,8 +342,8 @@ async def test_7_planned_amounts_never_treated_as_actual_spending(completion_han
 
     skip_res = await completion_handler.handle_skip_reconciliation(chat_id=chat_id)
     assert skip_res.recorded_actual_spend == Decimal("0.00")
-    assert "Recorded actual spend: ₹0" in skip_res.message_text
-    assert "₹20,000" not in skip_res.message_text.split("Recorded actual spend:")[1]
+    assert "Recorded actual spend: Rs 0" in skip_res.message_text
+    assert "Rs 20,000" not in skip_res.message_text.split("Recorded actual spend:")[1]
 
 
 @pytest.mark.asyncio
@@ -557,9 +557,9 @@ async def test_15_full_lifecycle_integration(memory_repos):
     # Step 8: Final actual spend reconciliation
     final_res = await orch.handle_user_message(telegram_user_id=user_id, chat_id=chat_id, message="₹22,500")
     assert final_res.status == "COMPLETED"
-    assert "Planned budget: ₹25,000" in final_res.message_text
-    assert "Recorded actual spend: ₹22,500" in final_res.message_text
-    assert "Difference: ₹2,500 under planned budget" in final_res.message_text
+    assert "Planned budget: Rs 25,000" in final_res.message_text
+    assert "Recorded actual spend: Rs 22,500" in final_res.message_text
+    assert "Difference: Rs 2,500 under planned budget" in final_res.message_text
 
     # Completed trip is inactive and historical
     completed_trip = memory_repos["trip_repo"].get_trip(trip_id)

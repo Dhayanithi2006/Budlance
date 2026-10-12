@@ -22,7 +22,7 @@ from budlance.ai.prompts import (
     TRIP_INTENT_CONTEXT_PROMPT,
     TRIP_INTENT_SYSTEM_PROMPT,
 )
-from budlance.ai.schemas import ExpenseItem, ParsedRescueIntent, ParsedTripIntent, TravelParty, TripAction
+from budlance.ai.schemas import ExpenseItem, ParsedRescueIntent, ParsedTripIntent, TravelParty, TripAction, classify_booking_links_request
 # =============================================================================
 # FALLBACK_PARSER_KNOWLEDGE
 # Used ONLY for entity recognition / extraction in the offline heuristic parser
@@ -248,6 +248,12 @@ class AIIntentService:
         # For UNRECOGNIZED or RESCUE — return minimal intent immediately
         if action == TripAction.UNRECOGNIZED:
             return ParsedTripIntent(action=action)
+        if action == TripAction.BOOKING_LINKS:
+            _, bl_target = classify_booking_links_request(clean)
+            return ParsedTripIntent(
+                action=action,
+                booking_link_target=bl_target or "all",
+            )
         if action == TripAction.RESCUE:
             return ParsedTripIntent(action=action, rescue_detail=text.strip())
         if action == TripAction.TRIP_COMPLETE:
@@ -289,11 +295,28 @@ class AIIntentService:
         # For CHANGE_* — only extract the relevant field
         if action == TripAction.CHANGE_BUDGET:
             is_delta, delta_amount, abs_budget = self._extract_budget_delta(clean)
-            if is_delta:
-                return ParsedTripIntent(action=action, is_delta=True, budget_delta=delta_amount)
-            return ParsedTripIntent(action=action, budget=abs_budget)
+            is_d_delta, d_delta = self._extract_days_delta(clean)
+            days = self._extract_days(clean)
+            s_date, e_date, d_explicit, d_ambig, d_phrase = self._extract_date_details(clean)
+            return ParsedTripIntent(
+                action=action,
+                is_delta=is_delta,
+                budget_delta=delta_amount,
+                budget=abs_budget,
+                is_days_delta=is_d_delta,
+                days_delta=d_delta,
+                days=days,
+                start_date=s_date,
+                end_date=e_date,
+                date_is_explicit=d_explicit,
+                date_is_ambiguous=d_ambig,
+                date_ambiguous_phrase=d_phrase,
+                date_confirmed=d_explicit,
+            )
         if action == TripAction.CHANGE_DAYS:
             days = self._extract_days(clean)
+            is_d_delta, d_delta = self._extract_days_delta(clean)
+            is_b_delta, b_delta, abs_budget = self._extract_budget_delta(clean)
             start_date, end_date, date_is_explicit, date_is_ambiguous, date_ambiguous_phrase = self._extract_date_details(clean)
             if start_date and days is not None and not end_date:
                 from datetime import datetime as dt, timedelta
@@ -302,6 +325,11 @@ class AIIntentService:
             return ParsedTripIntent(
                 action=action,
                 days=days,
+                is_days_delta=is_d_delta,
+                days_delta=d_delta,
+                budget=abs_budget,
+                is_delta=is_b_delta,
+                budget_delta=b_delta,
                 start_date=start_date,
                 end_date=end_date,
                 date_is_explicit=date_is_explicit,
@@ -370,15 +398,36 @@ class AIIntentService:
                 is_in_trip_query=True,
                 in_trip_query_type=self._extract_in_trip_query_type(clean),
             )
+        if action == TripAction.BOOKING_LINKS:
+            _, bl_target = classify_booking_links_request(clean)
+            return ParsedTripIntent(
+                action=action,
+                booking_link_target=bl_target or "all",
+            )
         if action == TripAction.FIND_ALTERNATIVE:
             return ParsedTripIntent(action=action)
         if action == TripAction.CHANGE_BUDGET:
             is_delta, delta_amount, abs_budget = self._extract_budget_delta(clean)
-            if is_delta:
-                return ParsedTripIntent(action=action, is_delta=True, budget_delta=delta_amount)
-            return ParsedTripIntent(action=action, budget=abs_budget)
+            is_d_delta, d_delta = self._extract_days_delta(clean)
+            days = self._extract_days(clean)
+            s_date, e_date, d_explicit, d_ambig, d_phrase = self._extract_date_details(clean)
+            return ParsedTripIntent(
+                action=action,
+                is_delta=is_delta,
+                budget_delta=delta_amount,
+                budget=abs_budget,
+                is_days_delta=is_d_delta,
+                days_delta=d_delta,
+                days=days,
+                start_date=s_date,
+                end_date=e_date,
+                date_is_explicit=d_explicit,
+                date_confirmed=d_explicit,
+            )
         if action == TripAction.CHANGE_DAYS:
             days = self._extract_days(clean)
+            is_d_delta, d_delta = self._extract_days_delta(clean)
+            is_b_delta, b_delta, abs_budget = self._extract_budget_delta(clean)
             start_date, end_date, date_is_explicit, date_is_ambiguous, date_ambiguous_phrase = self._extract_date_details(clean)
             if not start_date and existing_intent.start_date:
                 start_date = existing_intent.start_date
@@ -387,6 +436,8 @@ class AIIntentService:
             else:
                 date_confirmed = date_is_explicit
             eff_days = days if days is not None else existing_intent.days
+            if is_d_delta and d_delta is not None and eff_days is not None:
+                eff_days = max(1, eff_days + d_delta)
             if start_date and eff_days is not None and not end_date:
                 from datetime import datetime as dt, timedelta
                 d_s = dt.strptime(start_date, "%Y-%m-%d").date()
@@ -394,6 +445,11 @@ class AIIntentService:
             return ParsedTripIntent(
                 action=action,
                 days=days,
+                is_days_delta=is_d_delta,
+                days_delta=d_delta,
+                budget=abs_budget,
+                is_delta=is_b_delta,
+                budget_delta=b_delta,
                 start_date=start_date,
                 end_date=end_date,
                 date_is_explicit=date_is_explicit,
@@ -443,7 +499,7 @@ class AIIntentService:
 
         # Simple follow-up: extract fully and merge with context
         extracted = self._mock_full_extract(text, action=action)
-        return existing_intent.merge_with(extracted)
+        return existing_intent.merge_with(extracted) if existing_intent is not None else extracted
 
     # =========================================================================
     # Action Classification Heuristic
@@ -482,6 +538,11 @@ class AIIntentService:
         if any(re.search(p, clean) for p in trip_complete_patterns):
             return TripAction.TRIP_COMPLETE
 
+        # BOOKING_LINKS — user is asking for booking or reservation links
+        is_bl, _ = classify_booking_links_request(clean)
+        if is_bl:
+            return TripAction.BOOKING_LINKS
+
         # Disambiguation guards for LOG_EXPENSE:
         # 1. "spend time" / "spend 7 days" / "spend more time in nature" is spending time, NEVER LOG_EXPENSE
         is_spending_time = bool(
@@ -515,7 +576,12 @@ class AIIntentService:
             re.search(r"\bday\s*\d+\s*(?:is\s*)?(?:done|over|finished|completed|mudinjadhu)\b", clean)
             and re.search(r"(?:₹|rs\.?|inr)?\s*\d+", clean)
         )
-        is_explicit_expense = (has_expense_verb or has_day_completion_with_expense) and not is_spending_time and not is_budget_constraint
+        has_expense_amount = self._extract_expense_amount(clean) is not None
+        is_querying_cost = bool(re.search(r"\bcost\s+(?:for|of|to)\b|\bhow\s+much\s+(?:is|does|for)\b|\bfare\s+to\b", clean))
+        is_explicit_expense = (
+            (has_expense_verb and has_expense_amount and not is_querying_cost)
+            or has_day_completion_with_expense
+        ) and not is_spending_time and not is_budget_constraint
 
         # Active dispute/distress phrases that override simple expense logging
         active_distress_phrases = [
@@ -552,7 +618,7 @@ class AIIntentService:
             "cheaper replacement", "auto fare quote", "fare quote", "quote",
             "cancelled", "canceled", "bus cancelled", "bus is cancelled", "bus is canceled",
             "airport bus is cancelled", "airport bus is canceled", "museum is closed",
-            "crowded", "overcrowded", "too crowded", "what else nearby",
+            "crowded", "overcrowded", "too crowded", "what else nearby", "too many people", "too packed",
         ]
         strong_rescue_phrases = [
             "auto driver", "cab driver", "taxi driver", "driver is asking", "driver charging",
@@ -563,19 +629,23 @@ class AIIntentService:
             "museum is closed", "museum closed", "bus is cancelled", "bus cancelled", "bus is canceled",
             "airport bus is cancelled", "airport bus is canceled", "bus got cancelled",
             "is crowded", "too crowded", "overcrowded", "what else nearby", "what else is nearby",
+            "too many people",
         ]
         if any(re.search(rf"\b{re.escape(kw)}\b", clean) for kw in rescue_keywords):
-            # Strong rescue signals always indicate RESCUE
-            if any(re.search(rf"\b{re.escape(srp)}\b", clean) for srp in strong_rescue_phrases):
+            if "packed itinerary" in clean or "less crowd" in clean or "pace" in clean or "peaceful schedule" in clean:
+                pass
+            elif any(re.search(rf"\b{re.escape(srp)}\b", clean) for srp in strong_rescue_phrases):
+                # Strong rescue signals always indicate RESCUE
                 return TripAction.RESCUE
-            # Only classify as RESCUE if there's no clear trip planning or transport intent
-            planning_indicators = [
-                "budget", "days", "people", "person", "peru",
-                "irundhu", "poganum", "origin", "destination",
-                "train", "flight", "sleeper", "1ac", "2ac", "3ac",
-            ]
-            if not any(re.search(rf"\b{re.escape(pi)}\b", clean) for pi in planning_indicators):
-                return TripAction.RESCUE
+            else:
+                # Only classify as RESCUE if there's no clear trip planning or transport intent
+                planning_indicators = [
+                    "budget", "days", "people", "person", "peru",
+                    "irundhu", "poganum", "origin", "destination",
+                    "train", "flight", "sleeper", "1ac", "2ac", "3ac",
+                ]
+                if not any(re.search(rf"\b{re.escape(pi)}\b", clean) for pi in planning_indicators):
+                    return TripAction.RESCUE
 
         # MANAGE_BOOKING — user inquiries or updates about specific bookings
         booking_manage_patterns = [
@@ -614,6 +684,11 @@ class AIIntentService:
             r"\bcinema\b",
             r"\btheatres?\b",
             r"\bmovies?\s+(?:near|playing|tonight|in\b)",
+            r"\bremaining\s+(?:money|budget|balance|funds?)\b",
+            r"\b(?:money|budget|balance|funds?)\s+(?:left|remaining)\b",
+            r"\bhow\s+much\s+(?:money|balance)\s+(?:is\s+)?left\b",
+            r"\bcost\s+(?:for|of)\s+travell?ing\b",
+            r"\btravell?ing\s+to\s+(?:the\s+)?(?:theatre|theater|cinema|movies?)\b",
         ]
         if any(re.search(p, clean) for p in in_trip_query_patterns):
             return TripAction.IN_TRIP_QUERY
@@ -628,8 +703,18 @@ class AIIntentService:
             "sunset at a beach", "beach sunset", "replace", "replace it with",
             "is closed", "don't change anything else", "dont change anything else",
             "keep my hotel and flights unchanged",
+            "add to my plan", "add to the plan", "add to plan",
+            "change plan for", "change the plan for", "change plan for day",
+            "customise this plan", "customize this plan", "customise plan", "customize plan",
+            "can i customise", "can i customize", "customise", "customize",
+            "change day", "change morning", "change afternoon", "change evening",
         ]
-        has_refinement_phrase = any(sig in clean for sig in refinement_signals)
+        has_refinement_phrase = (
+            any(sig in clean for sig in refinement_signals)
+            or bool(re.search(r"\badd\s+[\w\s]+\s+to\s+(?:my\s+|the\s+)?plan\b", clean))
+            or bool(re.search(r"\badd\s+[\w\s]+\s+on\s+day\s+\d+\b", clean))
+            or bool(re.search(r"\bchange\s+plan\s+for\s+day\s+\d+\b", clean))
+        )
 
         field_changes = 0
         if self._extract_days(clean) is not None or self._extract_days_delta(clean)[0]:
@@ -924,16 +1009,16 @@ class AIIntentService:
             return "today"
         if any(w in clean for w in ("next activity", "next place", "what's next", "what is next", "next stop", "where to go next")):
             return "next"
-        if any(w in clean for w in ("budget", "afford", "left", "remaining")):
+        if any(w in clean for w in ("budget", "afford", "left", "remaining", "money", "balance")):
             return "budget"
-        if any(w in clean for w in ("eat", "food", "restaurant", "lunch place", "dinner place", "cafe", "somewhere good to eat")):
-            return "food"
-        if any(w in clean for w in ("route", "how to reach", "directions")):
+        if any(w in clean for w in ("route", "how to reach", "directions", "cost for travelling", "cost for travel", "cost of travelling", "traveling to the", "travelling to the", "fare to", "cost to", "travel to")):
             return "route"
-        if any(w in clean for w in ("airport", "flight")):
-            return "transport_transit"
         if any(w in clean for w in ("movie", "showtime", "cinema", "theatre", "theater", "film")):
             return "movie"
+        if any(w in clean for w in ("airport", "flight")):
+            return "transport_transit"
+        if re.search(r"\b(?:eat|food|restaurant|lunch|dinner|cafe|dining|samrudhi)\b", clean):
+            return "food"
         return "general"
 
     def _extract_booking_details(self, clean: str) -> tuple[str | None, str | None]:
@@ -1130,7 +1215,7 @@ class AIIntentService:
         word_re = "|".join(word_map.keys())
 
         # Extend / add
-        m_ext = re.search(rf"\b(?:extend\s+by|add)\s+(\d+|{word_re})\s*(?:more\s+)?(?:days?|nights?|din)\b", clean)
+        m_ext = re.search(rf"\b(?:extend\s+by|add)\s+(\d+|{word_re})\s*(?:more\s+|extra\s+)?(?:days?|nights?|din)\b", clean)
         if m_ext:
             v_str = m_ext.group(1)
             delta = int(v_str) if v_str.isdigit() else word_map.get(v_str, 1)
@@ -1304,11 +1389,31 @@ class AIIntentService:
                     cand_year = today_ist.year
                     try:
                         cand_date = datetime.date(cand_year, m_num, int(d))
-                        if cand_date < today_ist.date():
+                        if cand_date < today_ist:
                             cand_year += 1
                         start_date = datetime.date(cand_year, m_num, int(d)).strftime("%Y-%m-%d")
                     except Exception:
                         pass
+
+        # 6c. Month-first date with or without year (e.g. "Oct 15", "October 15th", "date Oct 15", "Oct 15 2026"):
+        if not start_date:
+            mf_re = rf"(?:(?:start(?:ing)?(?:\s+on)?|from|depart(?:ing)?(?:\s+on)?|date|on)\s+)?\b({month_pattern})\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{{4}}))?\b"
+            m_mf = re.search(mf_re, clean)
+            if m_mf:
+                m_str, d, y_str = m_mf.groups()
+                m_num = month_map.get(m_str.lower()[:3])
+                if m_num:
+                    if y_str:
+                        start_date = _to_iso(int(d), m_str, int(y_str))
+                    else:
+                        cand_year = today_ist.year
+                        try:
+                            cand_date = datetime.date(cand_year, m_num, int(d))
+                            if cand_date < today_ist:
+                                cand_year += 1
+                            start_date = datetime.date(cand_year, m_num, int(d)).strftime("%Y-%m-%d")
+                        except Exception:
+                            pass
 
         if start_date:
             return start_date, end_date, True, False, None
@@ -1531,8 +1636,8 @@ class AIIntentService:
                 mode = "train"
             else:
                 cls = "first"
-                if "flight" in clean or "airline" in clean or "by air" in clean or "plane" in clean:
-                    mode = "flight"
+        if mode == "flight" and cls in ("1ac", "2ac", "3ac", "sleeper"):
+            cls = None
 
         return mode, cls
 
@@ -1881,8 +1986,32 @@ class AIIntentService:
                 raw_message=text,
             )
 
-        # Weather / Closure / Transit Disruption / Crowd Swap patterns
-        if any(w in clean for w in ["rain", "raining", "storm", "closed", "shut", "landslide", "bad weather", "cancelled", "canceled", "crowded", "crowd", "what else nearby"]):
+        # Crowd Disruption patterns (explicitly separate from weather)
+        if "packed itinerary" not in clean and "less crowd" not in clean and any(w in clean for w in ["too many people", "too crowded", "crowded", "crowd", "rush", "overcrowded", "too packed", "don't like this place", "dont like this place", "not interested in this place", "some other place"]):
+            loc = None
+            if "mattupetty" in clean or "lake" in clean:
+                loc = "mattupetty lake"
+            elif "iskcon" in clean or "temple" in clean:
+                loc = "iskcon temple"
+            elif "museum" in clean:
+                loc = "museum"
+            elif "beach" in clean:
+                loc = "beach"
+            elif "fort" in clean:
+                loc = "fort"
+            elif "peak" in clean or "anamudi" in clean:
+                loc = "anamudi peak"
+            return ParsedRescueIntent(
+                rescue_type="crowd",
+                user_issue="Attraction crowded",
+                location_or_context=loc,
+                reported_price=None,
+                service_type=None,
+                raw_message=text,
+            )
+
+        # Weather / Closure / Transit Disruption patterns
+        if any(w in clean for w in ["rain", "raining", "storm", "closed", "shut", "landslide", "bad weather", "cancelled", "canceled", "what else nearby"]):
             loc = None
             if "mattupetty" in clean or "lake" in clean:
                 loc = "mattupetty lake"
@@ -1900,7 +2029,7 @@ class AIIntentService:
                 loc = "anamudi peak"
             return ParsedRescueIntent(
                 rescue_type="weather_closure",
-                user_issue="Attraction crowded or closed" if any(w in clean for w in ("crowded", "crowd", "packed")) else "Weather disruption, venue closure, or cancelled transit reported by user",
+                user_issue="Weather disruption, venue closure, or cancelled transit reported by user",
                 location_or_context=loc,
                 reported_price=None,
                 service_type="transit" if any(w in clean for w in ("bus", "flight", "train", "cab", "auto")) else None,

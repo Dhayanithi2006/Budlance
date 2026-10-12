@@ -11,6 +11,7 @@ from budlance.itinerary.models import GeneratedItinerary
 from budlance.ledger.models import LedgerSummary
 from budlance.rescue.models import RescueResult
 from budlance.schemas.travel import FlightOption, HotelOption, TransitOption
+from budlance.serpapi.models import DataSource
 
 
 def format_feasible_plan(
@@ -87,11 +88,11 @@ def format_feasible_plan(
                 t_badge = f" [Cached: {age_m}m ago]"
             elif "LIVE" in str(getattr(trans_prov, "provenance_type", "")):
                 t_badge = " [Live]"
-            elif "FALLBACK" in str(getattr(trans_prov, "provenance_type", "")):
-                t_badge = " [Offline]"
-        lines.append(f"• Transport: {trans_name} — {breakdown.currency} {transport.price:,.2f}{t_badge}")
+        is_live_trans = getattr(transport, "source", None) in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE)
+        t_display_name = trans_name if is_live_trans else f"{trans_name} (estimate)"
+        lines.append(f"• Transport: {t_display_name} — {breakdown.currency} {transport.price:,.2f}{t_badge}")
         flight_link = getattr(transport, "deep_link", None)
-        if flight_link and str(flight_link).startswith(("http://", "https://", "/book/")):
+        if is_live_trans and flight_link and str(flight_link).startswith(("http://", "https://", "/book/")):
             lines.append(f"  🔗 Booking: {flight_link}")
         elif getattr(transport, "transit_type", None) == "train" or "Train" in trans_name or "Express" in trans_name:
             lines.append("  🔗 Booking: https://www.irctc.co.in/nget/train-search")
@@ -109,19 +110,25 @@ def format_feasible_plan(
             elif "FALLBACK" in str(getattr(h_prov, "provenance_type", "")):
                 h_badge = " [Offline]"
 
+        is_live_hotel = getattr(hotel, "source", None) in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE)
         rating_detail = ""
-        if getattr(hotel, "rating", None) is not None:
+        if is_live_hotel and getattr(hotel, "rating", None) is not None:
             reviews_val = getattr(hotel, "review_count", None) or getattr(hotel, "reviews", None)
+            is_relaxed = getattr(hotel, "is_relaxed_tier", False) or (reviews_val is not None and reviews_val < 50)
+            tag = " · limited reviews" if is_relaxed else ""
             if reviews_val is not None:
-                rating_detail = f" (⭐ {hotel.rating} · {reviews_val} reviews)"
+                rating_detail = f" (⭐ {hotel.rating} · {reviews_val} reviews{tag})"
             else:
                 rating_detail = f" (⭐ {hotel.rating})"
 
+        h_name_display = hotel.name if is_live_hotel else f"Stay, {h_nights or 1} night (estimate)"
         stay_detail = f" ({breakdown.currency} {h_night_rate:,.2f}/night × {h_nights} nights)" if (h_nights and h_night_rate and h_nights > 1) else ""
-        lines.append(f"• Accommodation: {hotel.name}{rating_detail}{stay_detail} — {breakdown.currency} {hotel.total_price:,.2f}{h_badge}")
+        lines.append(f"• Accommodation: {h_name_display}{rating_detail}{stay_detail} — {breakdown.currency} {hotel.total_price:,.2f}{h_badge}")
         hotel_link = getattr(hotel, "deep_link", None)
-        if hotel_link and str(hotel_link).startswith(("http://", "https://")):
+        if is_live_hotel and hotel_link and str(hotel_link).startswith(("http://", "https://")):
             lines.append(f"  🔗 Booking: {hotel_link}")
+        elif not is_live_hotel:
+            lines.append(f"  🔗 Booking: https://www.google.com/travel/hotels?q=Hotels+in+{destination or ''}")
     elif breakdown and getattr(breakdown, "hotel_cost", Decimal("0.00")) > Decimal("0.00"):
         lines.append("• Accommodation: No verified hotels meeting quality threshold found within budget.")
 
@@ -683,6 +690,7 @@ def format_clarification(
         "people": "How many travelers will be joining?",
         "days": "How many days would you like to stay?",
         "origin": "Which city will you be departing from?",
+        "start_date": "Which date do you want to start? (Example: 9 Nov)",
     }
 
     # Build a summary of what we already know
@@ -708,6 +716,9 @@ def format_clarification(
 
         if known_context.interests:
             summary_parts.append(f"interests: {', '.join(known_context.interests)}")
+
+    if len(missing_fields) == 1 and missing_fields[0] == "start_date":
+        return field_questions["start_date"]
 
     if summary_parts and len(missing_fields) == 1:
         # Friendly single-question follow-up
@@ -736,6 +747,7 @@ def format_clarification(
         "people": "Number of travelers (e.g. 2 people or solo)",
         "days": "Duration in days (e.g. 3 days)",
         "origin": "Departure city (e.g. from Mumbai)",
+        "start_date": "Start date (e.g. 9 Nov)",
     }
     for f in missing_fields:
         label = field_labels.get(f, f.title())
@@ -755,6 +767,9 @@ def format_rescue_result(rescue_res: RescueResult) -> str:
             "💡 *Example:* `Plan a trip from Delhi to Jaipur for 2 people with budget ₹15,000`"
         )
 
+    if rescue_res.rescue_type == "crowd":
+        return rescue_res.resolution_summary
+
     if getattr(rescue_res, "is_proposal", False):
         prop_text = rescue_res.message_text or rescue_res.resolution_summary
         if "Rescue Mode: Alternative Found" not in prop_text:
@@ -762,7 +777,9 @@ def format_rescue_result(rescue_res: RescueResult) -> str:
         return prop_text
 
     if rescue_res.resolution_summary and (
-        rescue_res.resolution_summary.startswith("✅ Confirmed:")
+        rescue_res.resolution_summary.startswith("Plan updated")
+        or rescue_res.resolution_summary.startswith("Plan kept unchanged")
+        or rescue_res.resolution_summary.startswith("✅ Confirmed:")
         or rescue_res.resolution_summary.startswith("❌ Cancelled:")
     ):
         return rescue_res.resolution_summary
@@ -837,6 +854,16 @@ def to_telegram_html(text: str) -> str:
     """
     if not text:
         return text
+
+    # Protect existing valid Telegram HTML tags before html.escape
+    placeholders: dict[str, str] = {}
+
+    def _save_tag(m: re.Match) -> str:
+        idx = f"__TGTAG_{len(placeholders)}__"
+        placeholders[idx] = m.group(0)
+        return idx
+
+    text = re.sub(r"<(/?(?:b|i|code|a(?:\s+href=[^>]+)?))>", _save_tag, text)
 
     # Step 1: Escape dynamic characters for HTML safety (&, <, >)
     # quote=False keeps normal single/double quotes intact
@@ -927,6 +954,9 @@ def to_telegram_html(text: str) -> str:
         escaped,
     )
 
+    for ph, orig in placeholders.items():
+        escaped = escaped.replace(ph, orig)
+
     return escaped
 
 
@@ -997,8 +1027,103 @@ def format_feasible_transport(
     outbound_date: str | None = None,
     return_date: str | None = None,
     is_assumed_date: bool = True,
+    transfer_info: dict | None = None,
+    flight_cost: Decimal | None = None,
+    taxi_cost: Decimal | None = None,
+    hotel_cost: Decimal | None = None,
+    food_cost: Decimal | None = None,
+    activities_cost: Decimal | None = None,
+    buffer_cost: Decimal | None = None,
+    interest_note: str | None = None,
+    days: int | None = None,
+    total_budget: Decimal | None = None,
+    flight_is_estimate: bool = False,
+    hotel_is_estimate: bool = True,
+    highlights_note: str | None = None,
+    add_day_statement: str | None = None,
 ) -> str:
     """Format an immediate feasible transport preference response."""
+    if transfer_info:
+        dest_title = (destination or "Destination").strip().title()
+        nearest_city = transfer_info.get("nearest_city", dest_title) if transfer_info else dest_title
+        trans_hours = transfer_info.get("transfer_hours", 3.5) if transfer_info else 0
+        d_val = days or 2
+        nights_val = max(1, d_val - 1)
+        p_val = people or 1
+        traveller_str = f"{p_val} traveller" if p_val == 1 else f"{p_val} travellers"
+        orig_title = (origin or "Origin").strip().title()
+
+        date_header = ""
+        if outbound_date and return_date:
+            try:
+                import datetime
+                d_out = datetime.date.fromisoformat(outbound_date)
+                d_ret = datetime.date.fromisoformat(return_date)
+                date_header = f"{d_out.strftime('%a')} {d_out.day} {d_out.strftime('%b')} - {d_ret.strftime('%a')} {d_ret.day} {d_ret.strftime('%b %Y')}"
+            except Exception:
+                date_header = f"{outbound_date} - {return_date}"
+        elif outbound_date:
+            date_header = outbound_date
+
+        f_cost = flight_cost or estimated_cost
+        t_cost = taxi_cost or Decimal("0.00")
+        h_cost = hotel_cost or Decimal("0.00")
+        food_c = food_cost or Decimal("0.00")
+        act_c = activities_cost or Decimal("0.00")
+        buf_c = buffer_cost or Decimal("5000.00")
+
+        tot_planned = f_cost + t_cost + h_cost + food_c + act_c + buf_c
+        b_val = total_budget or (estimated_cost + remaining_budget)
+        left_val = b_val - tot_planned
+
+        if transfer_info:
+            flight_label = f"- Flights {orig_title} to {nearest_city} and back (estimate): Rs {int(round(f_cost)):,}" if flight_is_estimate else f"- Flights {orig_title} to {nearest_city} and back: Rs {int(round(f_cost)):,}"
+        else:
+            flight_label = f"- Flights {orig_title} to {dest_title} and back (estimate): Rs {int(round(f_cost)):,}" if flight_is_estimate else f"- Flights {orig_title} to {dest_title} and back: Rs {int(round(f_cost)):,}"
+
+        stay_label = f"- Stay, {nights_val} night{'s' if nights_val > 1 else ''} (estimate): Rs {int(round(h_cost)):,}" if hotel_is_estimate else f"- Stay, {nights_val} night{'s' if nights_val > 1 else ''}: Rs {int(round(h_cost)):,}"
+
+        lines = [
+            f"Here is your {dest_title} plan preview",
+            f"{date_header} | {d_val} days, {nights_val} night{'s' if nights_val > 1 else ''} | {traveller_str} | from {orig_title}",
+            "",
+            "Estimated cost",
+            flight_label,
+        ]
+        if transfer_info and t_cost > Decimal("0.00"):
+            lines.append(f"- Taxi {nearest_city} to {dest_title} and back (estimate): Rs {int(round(t_cost)):,}")
+        lines.extend([
+            stay_label,
+            f"- Food and local travel (estimate): Rs {int(round(food_c)):,}",
+            f"- Activities (estimate): Rs {int(round(act_c)):,}",
+            f"- Emergency buffer (kept aside for rain or price surprises): Rs {int(round(buf_c)):,}",
+            "",
+            f"Total planned: Rs {int(round(tot_planned)):,} of your Rs {int(round(b_val)):,}. Rs {int(round(left_val)):,} is left.",
+        ])
+
+        if highlights_note:
+            lines.append("")
+            lines.append(highlights_note)
+
+        default_travel_note = (
+            f"{dest_title} has no airport, so you fly to {nearest_city} and drive about {trans_hours} hours each way. "
+            f"With {d_val} days, most of your time is travelling — consider adding an extra day to explore more."
+        ) if transfer_info else None
+
+        if add_day_statement or default_travel_note:
+            lines.append("")
+            lines.append(add_day_statement or default_travel_note)
+
+        if interest_note:
+            lines.append("")
+            lines.append(interest_note)
+
+        lines.append("")
+        lines.append("Change anything first, or unlock the full plan with flight and hotel links for Rs 49.")
+        return "\n".join(lines)
+
+    if transport_mode == "flight" and transport_class in ("1ac", "2ac", "3ac", "sleeper"):
+        transport_class = None
     class_label = transport_class.upper() if transport_class else ""
     mode_label = transport_mode.lower()
     pref_str = f"{class_label} {mode_label}".strip() if class_label else mode_label
@@ -1058,8 +1183,8 @@ def format_infeasible_transport(
     pref_str = f"{class_label} {mode_label}".strip() if class_label else mode_label
 
     travelers_str = f"{people} travelers" if people > 1 else "1 traveler"
-    cost_str = f"₹{cost:,.2f}" if currency == "INR" else f"{currency} {cost:,.2f}"
-    budget_str = f"₹{budget:,.2f}" if currency == "INR" else f"{currency} {budget:,.2f}"
+    cost_str = f"Rs {int(round(cost)):,}" if currency == "INR" else f"{currency} {int(round(cost)):,}"
+    budget_str = f"Rs {int(round(budget)):,}" if currency == "INR" else f"{currency} {int(round(budget)):,}"
 
     lines = [
         f"{pref_str} for {travelers_str} would require approximately {cost_str}.",

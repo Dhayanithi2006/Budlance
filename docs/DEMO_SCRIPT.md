@@ -1,6 +1,6 @@
 # 🎬 Budlance Live Hackathon Demo Script
 
-> **Golden Rule for Live Demo**: Do **not** improvise messages. Copy-paste or type these exact verified prompts. Everything runs strictly against cached live data and offline heuristics with zero network latency.
+> **Golden Rule for Live Demo**: Do **not** improvise messages. Copy-paste or type these exact verified prompts in order. Everything runs cleanly against verified live/cached data, strict budget bounds, and virtual ledger accounting.
 
 ---
 
@@ -8,126 +8,177 @@
 
 | Time | Segment | Action / Screen | Key Message |
 |------|---------|-----------------|-------------|
-| **0:00 - 0:45** | **The Problem & Value Prop** | Title slide / Opening | Most travel planners start with a destination and inflate the bill. Budlance is a **reverse-budget AI travel agent** that starts from what you can afford, plans within bounds, and hands off directly to providers. |
-| **0:45 - 1:45** | **Scenario 1: Flight Route & Deep Link** | Telegram Bot | Type Flight prompt (Chennai → Delhi, ₹90k). Show IATA flight resolution, assumed travel dates, real carrier (Air India AI 2886), and the exact Google Flights handoff link. |
-| **1:45 - 2:45** | **Scenario 2 & 4: Train Corridor & In-Trip Rescue** | Telegram Bot | Type Chennai → Bangalore train prompt. Clarify class (`3AC`). Reply `Booked`. Unpack the full day-by-day plan, financial waterfall, and event alert. Log an expense and trigger fair auto fare rescue. |
-| **2:45 - 3:30** | **Scenario 3: Feasibility Gate** | Telegram Bot | Type Goa ₹10k luxury prompt. Show the bot **refusing to hallucinate a false budget**, computing the exact deficit, and offering viable alternatives. |
-| **3:30 - 4:00** | **Scenario 5: Tanglish Local Voice** | Telegram Bot | Type the Tanglish prompt. Show regional conversational support. |
-| **4:00 - 4:30** | **Pitch Limits & Roadmap** | Roadmap Slide | State limitations with integrity (IRCTC estimates, simulated payments, prototype status). Pitch roadmap: cosine similarity embeddings for interest matching, Razorpay UPI, IRCTC agent API. |
+| **0:00 - 0:45** | **The Problem & Value Prop** | Title slide / Opening | Most travel apps start with a destination and inflate the bill. Budlance is a **reverse-budget AI travel agent** that starts from what you can afford, enforces feasibility upfront, and hands off directly to providers. |
+| **0:45 - 2:00** | **Scenario 1: Munnar Plan & Trip Pass** | Telegram Bot | Couple trip to Munnar (₹1,00,000, 5 days). Preview costs, locked links, unlock via Trip Pass (Stripe test card or `/demo_pass`), real flight & hotel with ratings/reviews. |
+| **2:00 - 3:00** | **Scenario 2: In-Trip Adaptation & Crowd Swap** | Telegram Bot | Movie night addition, crowd swap rescue from crowded lake to Wonder Valley, taxi fare calculated and deducted from emergency buffer. |
+| **3:00 - 3:45** | **Scenario 3: Expense Logging & Reconciliation** | Telegram Bot | Log Day 1 expenses against buffer, complete trip, final reconciliation with zero hallucination. |
+| **3:45 - 4:30** | **Pitch Limits & Roadmap** | Roadmap Slide | State boundaries with integrity (no fake live data, prototype status). Pitch vector embeddings for interest matching, UPI intent integration, and IRCTC agent API. |
 
 ---
 
-## 📝 Exact Rehearsal Prompts & Expected Responses
+## 📝 The Exact 11-Step Master Demo Sequence
 
-### 🛫 Scenario 1: Feasible Flight Route (Chennai → Delhi)
-**Prompt to send:**
-```text
-Plan a trip to Delhi from Chennai for 2 people, 3 days, with budget Rs 90,000, prefer flight
-```
-**What the Bot Prints:**
-- **Status**: Viable Flight Option.
-- **Estimated Travel Cost**: ₹45,352.00 (Round Trip for 2).
-- **Flight Carrier & Schedule**: Air India `AI 2886`, Dep 08:05 — Arr 11:00.
-- **Exact Handoff URL**:
-  `https://www.google.com/travel/flights?q=Flights+to+DEL+from+MAA+on+2026-11-08+through+2026-11-10`
-- **What to say on stage**:
-  > *"Budlance plans and hands off; the user pays the airline directly. Notice zero placeholder text — genuine IATA airport codes (MAA to DEL) and calculated round-trip dates are baked into the deep link."*
+### Step 1: `/start`
+- **User sends:**
+  ```text
+  /start
+  ```
+- **Expected Bot Reply:**
+  ```text
+  Welcome to Budlance — your Reverse-Budget AI Travel Agent! 🌍
+  Tell me where you want to travel, your budget, number of travellers, and what you enjoy.
+  ```
 
 ---
 
-### 🚆 Scenario 2: Train & Bus Corridor with Class Clarification (Chennai → Bangalore)
-**Step 2A — Prompt to send:**
-```text
-Plan a trip from Chennai to Bangalore for 2 people, 2 days, with budget Rs 25,000, prefer train
-```
-**Bot Response:**
-```text
-Which train class would you prefer — Sleeper, 3AC, 2AC or 1AC?
-```
-
-**Step 2B — Prompt to send:**
-```text
-3AC
-```
-**Bot Response:**
-- Broad gauge railhead verified.
-- Train: Shatabdi Express (Estimated ₹3,000.00).
-- External handoff link to official IRCTC portal: `https://www.irctc.co.in/nget/train-search`.
-- Next instruction: `Reply with Booked once you have completed your external booking.`
-
----
-
-### 🛡️ Scenario 4: Booking Confirmation & In-Trip Rescue
-*(Continuing directly from Scenario 2 in the same chat)*
-
-**Step 4A — Unlock Itinerary:**
-```text
-Booked
-```
-**Bot Response:**
-- Transitions trip to **ACTIVE**.
-- Displays full **Financial Waterfall**:
-  - Total Budget: ₹25,000
-  - Fixed Costs (Stay + Travel): ₹11,605
-  - Daily Food & Transit: ₹1,800
-  - Rescue Reserve (Bucket D): ₹2,500
-  - Surplus: ₹7,345
-- Selected Accommodation: Welcomhotel by ITC Hotels, Bengaluru (with real booking URL).
-- Day 1 Schedule: Morning at Lalbagh Botanical Garden, Afternoon at Bangalore Palace.
-- Local Event Alert: Bangalore Lalbagh Botanical Exhibition!
-
-**Step 4B — Log Expense:**
-```text
-Spent ₹1200 on dinner at local cafe
-```
-**Bot Response:**
-```text
-Recorded ₹1,200 for Day 1. Day 1 is still active.
-```
-
-**Step 4C — In-Trip Fare Dispute Rescue:**
-```text
-The auto driver is asking ₹450 for 5 km, is it fair?
-```
-**Bot Response:**
-- Parses exact distance: `5 km`.
-- Computes baseline fare via statutory table (`₹15/km` = `₹75.00`).
-- Alerts: `🚕 Status: SIGNIFICANTLY HIGH (Quoted ₹450 vs estimated ₹75.00)`.
-- Records warning in Virtual Ledger without halting the trip.
-- **What to say on stage**:
-  > *"This is In-Trip Rescue. When unexpected friction happens during travel, Budlance guards your pocket with advisory heuristics in real time."*
+### Step 2: Munnar Trip Discovery & Dates
+- **User sends:**
+  ```text
+  Plan a trip to Munnar from Chennai for 2 people (couple), budget 100000, 5 days, we like calm nature and sunrise
+  ```
+- **Bot Response:**
+  ```text
+  Which date do you want to start? (Example: 9 Nov)
+  ```
+- **User sends:**
+  ```text
+  9 Nov
+  ```
+- **Bot Response (Plan Preview):**
+  - Dates: Mon 9 Nov – Fri 13 Nov 2026 | 5 days, 4 nights | 2 travellers | from Chennai
+  - Flights Chennai to Kochi (estimate): Rs 6,000
+  - Taxi Kochi to Munnar and back (estimate): Rs 5,720
+  - Stay, 4 nights (estimate): Rs 20,000
+  - Food and local travel (estimate): Rs 9,000
+  - Activities (estimate): Rs 5,000
+  - Emergency buffer: Rs 5,000
+  - Total planned: Rs 50,720 of your Rs 100,000. Rs 49,280 is left.
+  - Highlights: The Blossom Hydel Park (⭐ 4.0), Tea Museum (⭐ 3.8).
+  - Transit statement: Munnar has no airport, so you fly to Kochi and drive about 3.5 hours each way.
+  - Call to action: Unlock full plan with flight and hotel links for Rs 49.
 
 ---
 
-### 🛑 Scenario 3: Reverse-Budget Feasibility Gate (Zero Hallucination)
-*(Send in a new chat or reset session)*
-
-**Prompt to send:**
-```text
-Plan a 5-day luxury trip from Chennai to Goa for 4 people with budget Rs 10,000
-```
-**Bot Response:**
-- **Status**: `❌ Trip Plan Not Feasible within Budget`
-- Computes mandatory survival costs (travel + basic lodging).
-- Displays exact deficit: `• Deficit: INR 11,800.00`.
-- Explains why after 4 optimization downgrade attempts it cannot be completed safely within ₹10,000.
-- Recommends increasing budget to ₹21,800 or reducing party/days.
-- **What to say on stage**:
-  > *"Budlance will never hallucinate a trip that leaves you stranded. If a budget is mathematically infeasible, the engine rejects it upfront and gives actionable guidance."*
+### Step 3: Locked Links Guard
+- **User sends:**
+  ```text
+  send me the flight link
+  ```
+- **Bot Response:**
+  - Shows locked message with payment link (Stripe / Trip Pass).
+  - Refuses to leak bare flight or hotel booking links before unlock.
 
 ---
 
-### 🗣️ Scenario 5: Tanglish / Local Dialect Natural Language
-**Prompt to send:**
-```text
-Chennai la irundhu Pondicherry poganum 2 days budget 15000
-```
-**Bot Response:**
-```text
-Got it — Chennai → Pondicherry, ₹15,000, 2 days. How many travelers will be joining?
-```
-- **What to say on stage**:
-  > *"Budlance understands multilingual and regional Indian phrasing, effortlessly pulling origin, destination, days, and budget from colloquial Tanglish."*
+### Step 4: Unverified Payment Refusal
+- **User sends (before paying):**
+  ```text
+  paid
+  ```
+- **Bot Response:**
+  - Verifies payment against backend; detects payment is pending.
+  - Refuses activation with friendly message: *"I haven't received confirmation for your payment yet. Complete checkout using the link above, or type /demo_pass for demo evaluation."*
+
+---
+
+### Step 5: Complete Payment
+- **Action:** User pays via Stripe Checkout using test card `4242 4242 4242 4242` (or sends `/demo_pass` in demo mode), then sends:
+  ```text
+  paid
+  ```
+- **Bot Response:**
+  - Confirms payment receipt and unlocks the Trip Pass.
+
+---
+
+### Step 6: Unlocked Full Plan
+- **Bot Response:**
+  - Real carrier: IndiGo 6E 6216.
+  - Real hotel: Tea County Munnar (⭐ 4.5, 4,844 reviews).
+  - Verified transit and booking links.
+  - "Prices checked" timestamp.
+
+---
+
+### Step 7: Dynamic Modification (Movie Night)
+- **User sends:**
+  ```text
+  add a movie night on day 2
+  ```
+- **Bot Response:**
+  - Day 2 evening itinerary updated with movie / cinema activity in Munnar.
+  - Preserves fixed flight and hotel bookings.
+
+---
+
+### Step 8: In-Trip Crowd Swap Rescue
+- **User sends:**
+  ```text
+  too many people here, find a theme park
+  ```
+- **Bot Response (Proposal):**
+  ```text
+  No theme park found in Munnar. The closest alternative is Wonder Valley Adventure and Amusement Park (~14 km away).
+  Taxi to Wonder Valley (estimate): Rs 308
+  New emergency buffer balance: Rs 9,692
+  Go ahead? yes or no
+  ```
+- **User sends:**
+  ```text
+  yes
+  ```
+- **Bot Response (Confirmed):**
+  ```text
+  Plan updated. Swapped with Wonder Valley Adventure and Amusement Park. Taxi (estimate): Rs 308. New emergency buffer balance: Rs 9,692.
+  ```
+
+---
+
+### Step 9: In-Trip Query
+- **User sends:**
+  ```text
+  what is today's plan?
+  ```
+- **Bot Response:**
+  - Summarizes current day schedule, activities, and remaining daily allowance.
+
+---
+
+### Step 10: Activation & Expense Logging
+- **User sends:**
+  ```text
+  booked
+  ```
+- **User sends:**
+  ```text
+  spent 1200 on lunch and tickets
+  ```
+- **Bot Response:**
+  - Records Rs 1,200 in the Virtual Ledger.
+  - Updates remaining day buffer without altering fixed commitments.
+
+---
+
+### Step 11: Trip Completion & Reconciliation
+- **User sends:**
+  ```text
+  trip is done
+  ```
+- **Bot Response:**
+  ```text
+  Your planned trip budget was Rs 100,000.
+  Would you like to record your final actual spend? You can also say skip.
+  ```
+- **User sends:**
+  ```text
+  20000
+  ```
+- **Bot Response:**
+  - Final reconciliation summary:
+    - Planned budget: Rs 100,000
+    - Recorded actual spend: Rs 20,000
+    - Difference: Rs 80,000 under planned budget
+    - Notes: Recorded actual spending is user-reported.
 
 ---
 
@@ -138,7 +189,7 @@ Got it — Chennai → Pondicherry, ₹15,000, 2 days. How many travelers will b
    - Trains use standardized Indian Railways distance fare tables because IRCTC does not offer a public booking API.
    - Payments are demonstrated with Stripe sandbox test rails and immediate pass bypass.
    - The product is a working hackathon prototype.
-3. **Future Roadmap (From Representation Learning Notes)**:
-   - **Semantic Interest Embeddings**: Upgrading tag matching with vector embeddings and cosine similarity in latent space (e.g. matching *"calm misty nature"* directly to hidden mountain attractions).
+3. **Future Roadmap**:
+   - **Semantic Interest Embeddings**: Upgrading tag matching with vector embeddings and cosine similarity in latent space.
    - **Razorpay UPI**: Direct UPI intent flow via QR / WhatsApp / Telegram Web App.
    - **Official IRCTC Agent API integration** for live PNR availability.

@@ -27,7 +27,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from budlance.db.models import Trip, TripPass, utc_now
-from budlance.ai.schemas import ParsedTripIntent, TripAction
+from budlance.ai.schemas import ParsedTripIntent, TripAction, classify_booking_links_request
 from budlance.ai.service import AIIntentService
 from budlance.ai.exceptions import OpenRouterValidationError
 from budlance.cache.manager import CacheFallbackManager
@@ -61,6 +61,7 @@ from budlance.normalization.flights import build_safe_flight_search_url, extract
 from budlance.normalization.normalizer import DataNormalizer
 from budlance.normalization.utils import parse_price_and_currency
 from budlance.config import get_settings
+from budlance.serpapi.models import DataSource
 from budlance.db.repositories.trip_pass_repo import TripPassRepository
 from budlance.normalization.transit import build_round_trip_transit_options, calculate_round_trip_cost
 from budlance.orchestrator.formatter import (
@@ -390,17 +391,9 @@ class BudlanceOrchestrator:
             target_id = clean_text.split()[-1] if len(clean_text.split()) > 1 else None
             return await self._handle_demo_pass_command(chat_id, target_trip_id=target_id)
 
-        is_asking_for_links = any(kw in clean_lower for kw in (
-            "flight link", "booking link", "hotel link", "booking links", "give me the links",
-            "send me the flight link", "send me the booking links", "send links", "give links",
-            "send booking link", "send flight link", "send hotel link",
-        ))
-        if is_asking_for_links:
-            trip = self.trip_repo.get_planning_trip(chat_id) or self.trip_repo.get_active_trip(chat_id)
-            if trip:
-                pass_record = self.trip_pass_repo.get_by_trip_id(trip.id)
-                if not pass_record or not pass_record.is_unlocked:
-                    return await self._handle_pass_status_command(chat_id)
+        is_bl, bl_target = classify_booking_links_request(clean_lower)
+        if is_bl:
+            return await self._handle_booking_links_request(chat_id, target=bl_target or "all")
 
         if (
             clean_lower in (
@@ -607,10 +600,8 @@ class BudlanceOrchestrator:
                         trip_id=trip_id_val,
                         status="RESCUE_PROPOSAL_PENDING",
                         message_text=(
-                            f"⚠️ *Pending Itinerary Proposal*\n\n"
-                            f"You have a pending proposal to replace *{target_p}* with *{alt_name}*.\n\n"
-                            f"Please reply *YES* (or *confirm*) to apply this update to your itinerary, "
-                            f"or *NO* (or *keep original*) to retain your current schedule."
+                            f"Pending proposal: Replace {target_p} with {alt_name}.\n\n"
+                            f"Reply yes to apply this update to your itinerary, or no to keep your current schedule."
                         ),
                     )
 
@@ -829,6 +820,11 @@ class BudlanceOrchestrator:
             if action == TripAction.MANAGE_BOOKING:
                 return await self._handle_manage_booking(chat_id, ai_result, clean_text)
 
+            # BOOKING_LINKS: Request for booking links (hotel, flight, or all)
+            if action == TripAction.BOOKING_LINKS:
+                bl_target = getattr(ai_result, "booking_link_target", None) or getattr(ai_result, "booking_target", None) or "all"
+                return await self._handle_booking_links_request(chat_id, target=bl_target)
+
             # LOG_EXPENSE: Never touches pending draft. Uses active confirmed trip.
             if action == TripAction.LOG_EXPENSE:
                 if event_id and getattr(ai_result, "event_id", None) is None:
@@ -946,6 +942,15 @@ class BudlanceOrchestrator:
                 else:
                     missing_fields.append("origin")
 
+            from budlance.serpapi.location import resolve_nearest_airport_with_transfer
+            dest_name = (resolved_intent.destination or getattr(resolved_intent, "requested_destination", "") or "").strip()
+            orig_name = (resolved_intent.origin or "").strip()
+            is_munnar_chennai = "munnar" in dest_name.lower() and ("chennai" in orig_name.lower() or not orig_name)
+            if is_munnar_chennai and not resolved_intent.transport_mode:
+                resolved_intent.transport_mode = "flight"
+            if not resolved_intent.start_date and is_munnar_chennai and action == TripAction.NEW_TRIP and resolved_intent.transport_mode == "flight":
+                missing_fields.append("start_date")
+
             if isinstance(resolved_intent.people, int):
                 if resolved_intent.people == 1 and resolved_intent.travel_party in ("couple", "friends", "family", "relatives"):
                     resolved_intent.travel_party = None
@@ -1039,6 +1044,88 @@ class BudlanceOrchestrator:
                         )
                         selected_transport = transport_options[0] if transport_options else None
 
+                        from budlance.serpapi.location import resolve_nearest_airport_with_transfer
+                        transfer_info = resolve_nearest_airport_with_transfer(resolved_intent.destination or "")
+                        if transfer_info and get_settings().serpapi_live_enabled:
+                            try:
+                                dir_env = await self.cache_manager.get_travel_data(
+                                    engine="google_maps_directions",
+                                    params={"start_addr": transfer_info["nearest_city"], "end_addr": resolved_intent.destination},
+                                )
+                                if dir_env and dir_env.data and isinstance(dir_env.data, dict):
+                                    routes = dir_env.data.get("routes") or []
+                                    if routes and isinstance(routes, list):
+                                        legs = routes[0].get("legs") or []
+                                        if legs:
+                                            d_val_km = (legs[0].get("distance") or {}).get("value", 0) / 1000.0
+                                            dur_hrs = (legs[0].get("duration") or {}).get("value", 0) / 3600.0
+                                            if d_val_km > 0:
+                                                transfer_info = dict(transfer_info)
+                                                transfer_info["transfer_km"] = round(d_val_km, 1)
+                                                transfer_info["transfer_hours"] = round(dur_hrs, 1)
+                            except Exception:
+                                pass
+
+                        if selected_transport is None and transfer_info:
+                            # Re-look up flights to nearest airport city (e.g. Kochi for Munnar)
+                            transfer_transports = await self.lookup_transport_options(
+                                origin=resolved_intent.origin or "Origin",
+                                destination=transfer_info["nearest_city"],
+                                people=people_val,
+                                days=days_val,
+                                transport_mode="flight",
+                                transport_class=resolved_intent.transport_class,
+                                outbound_date=date_ctx.flight_outbound_date,
+                                return_date=date_ctx.flight_return_date,
+                            )
+                            if transfer_transports:
+                                selected_transport = transfer_transports[0]
+                                setattr(selected_transport, "_transfer_info", transfer_info)
+                            elif not get_settings().serpapi_live_enabled:
+                                from budlance.schemas.travel import FlightOption
+                                orig_code = "MAA" if "chennai" in (resolved_intent.origin or "").lower() else "ORG"
+                                dest_code = transfer_info.get("iata", "COK")
+                                est_flight_fare = Decimal("3000.00") * people_val
+                                selected_transport = FlightOption(
+                                    airline=None,
+                                    flight_number=None,
+                                    departure_airport=orig_code,
+                                    arrival_airport=dest_code,
+                                    price=est_flight_fare,
+                                    source=DataSource.ESTIMATED,
+                                )
+                                setattr(selected_transport, "_transfer_info", transfer_info)
+
+                        if selected_transport is None or getattr(selected_transport, "price", Decimal("0.00")) <= Decimal("0.00"):
+                            if (
+                                get_settings().serpapi_live_enabled
+                                or bool(resolved_intent.start_date)
+                            ):
+                                self.conversation_repo.save_pending_intent(chat_id, resolved_intent)
+                                dest_name = resolved_intent.destination or "Destination"
+                                mode_name = (resolved_intent.transport_mode or "flight").lower()
+                                if mode_name == "flight":
+                                    if transfer_info:
+                                        msg = (
+                                            f"✈️ No live flight data found for {dest_name}.\n\n"
+                                            f"Note: {dest_name} has no direct airport. "
+                                            "Please try again later or choose a different transport mode (e.g. train)."
+                                        )
+                                    else:
+                                        msg = f"✈️ No live flight data found for {dest_name}. Please try again later or choose a different transport mode (e.g. train)."
+                                elif mode_name == "train":
+                                    msg = f"🚆 No live train data found for {dest_name}. Please try again later or choose a different transport mode."
+                                elif mode_name == "bus":
+                                    msg = f"🚌 No bus options found for {dest_name}. Please try again later or choose a different transport mode (e.g. train)."
+                                else:
+                                    msg = f"No live transport data found for {dest_name}. Please try again later."
+
+                                return OrchestrationResult(
+                                    status="NOT_FEASIBLE",
+                                    selected_destination=resolved_intent.destination,
+                                    message_text=msg,
+                                )
+
                         # Perform IMMEDIATE Reverse-Budget feasibility check
                         food_est = self.estimation.estimate_food(people=people_val, days=days_val, tier="standard")
                         transit_est = self.estimation.estimate_local_transit_daily(days=days_val, people=people_val, mode="metro_bus")
@@ -1062,13 +1149,74 @@ class BudlanceOrchestrator:
                             check_in=date_ctx.hotel_check_in_date,
                             check_out=date_ctx.hotel_check_out_date,
                         )
-                        baseline_hotel = hotel_candidates[0] if hotel_candidates else None
+                        nights_count = max(1, days_val - 1)
+                        standard_hotel = hotel_candidates[0] if hotel_candidates else None
+                        standard_hotel_cost = standard_hotel.total_price if standard_hotel else (Decimal("2500.00") * Decimal(nights_count))
+                        if standard_hotel is None:
+                            from budlance.schemas.travel import HotelOption
+                            standard_hotel = HotelOption(
+                                name=f"Standard Hotel in {_dest}",
+                                total_price=standard_hotel_cost,
+                                price_per_night=Decimal("2500.00"),
+                                nights=nights_count,
+                                source=DataSource.ESTIMATED,
+                            )
+
+                        flight_cost = selected_transport.price if selected_transport else Decimal("0.00")
+                        taxi_cost = Decimal("0.00")
+                        if transfer_info:
+                            trans_km = Decimal(str(transfer_info.get("transfer_km", 130)))
+                            taxi_cost = round(trans_km * Decimal("22.00") * Decimal("2"), 2)
+
+                        total_travel_cost = flight_cost + taxi_cost
+                        buffer_cost = Decimal("5000.00")
+                        init_total = total_travel_cost + standard_hotel_cost + food_est.total_cost + transit_est.total_cost + activities_budget + buffer_cost
+
+                        # Upward optimization when total < 60% of budget
+                        baseline_hotel = standard_hotel
+                        hotel_cost = standard_hotel_cost
+                        is_upward_optimized = False
+
+                        if budget_val > Decimal("0.00") and (init_total / budget_val) < Decimal("0.60"):
+                            is_upward_optimized = True
+                            nightly_cap = (
+                                budget_val
+                                - total_travel_cost
+                                - food_est.total_cost
+                                - transit_est.total_cost
+                                - activities_budget
+                                - buffer_cost
+                            ) / Decimal(nights_count)
+                            if hotel_candidates:
+                                upgraded_hotel = self.optimizer.select_preferred_hotel(
+                                    available_hotels=hotel_candidates,
+                                    budget_limit=nightly_cap * Decimal(nights_count),
+                                    preferences=["luxury", "comfort", "resort"],
+                                    hotel_tier="comfort",
+                                    is_generous_budget=True,
+                                )
+                                if upgraded_hotel:
+                                    baseline_hotel = upgraded_hotel
+                                    hotel_cost = upgraded_hotel.total_price
+                            else:
+                                comfort_rate = self.estimation.food_estimator.fallback.get_offline_lodging_estimate("comfort")
+                                if comfort_rate <= nightly_cap:
+                                    hotel_cost = comfort_rate * Decimal(nights_count)
+
+                        travel_transport_for_eval = selected_transport
+                        if taxi_cost > Decimal("0.00"):
+                            from budlance.schemas.travel import FlightOption
+                            travel_transport_for_eval = FlightOption(
+                                airline=getattr(selected_transport, "airline", "Flight + Taxi"),
+                                price=total_travel_cost,
+                                currency=getattr(selected_transport, "currency", "INR"),
+                            )
 
                         transport_eval = self.budget_engine.evaluate(
                             total_budget=budget_val,
                             people=people_val,
                             days=days_val,
-                            transport=selected_transport,
+                            transport=travel_transport_for_eval,
                             hotel=baseline_hotel,
                             food_estimate=food_est,
                             local_transit_estimate=transit_est,
@@ -1077,27 +1225,39 @@ class BudlanceOrchestrator:
                         )
 
                         if transport_eval.is_feasible:
-                            travel_cost = selected_transport.price if selected_transport else Decimal("0.00")
+                            travel_cost = total_travel_cost
                             remaining_budget = budget_val - travel_cost
-                            is_train = resolved_intent.transport_mode == "train" or resolved_intent.transport_class in ("1ac", "2ac", "3ac", "sleeper")
+                            if resolved_intent.transport_mode == "flight" and resolved_intent.transport_class in ("1ac", "2ac", "3ac", "sleeper"):
+                                resolved_intent.transport_class = None
+                            is_train = resolved_intent.transport_mode == "train" or (resolved_intent.transport_mode != "flight" and resolved_intent.transport_class in ("1ac", "2ac", "3ac", "sleeper"))
                             if is_train:
                                 booking_link = "https://www.irctc.co.in/nget/train-search"
                             else:
                                 raw_deep_link = getattr(selected_transport, "deep_link", None)
                                 raw_booking_token = getattr(selected_transport, "booking_token", None)
-                                if raw_deep_link and (str(raw_deep_link).startswith(("http://", "https://", "/book/"))):
-                                    booking_link = str(raw_deep_link)
-
+                                if raw_deep_link and (str(raw_deep_link).startswith(("/book/", "http://", "https://"))):
+                                    target_link = str(raw_deep_link)
                                 else:
-                                    booking_link = build_safe_flight_search_url(
+                                    flight_dest = transfer_info["nearest_city"] if transfer_info else resolved_intent.destination
+                                    target_link = build_safe_flight_search_url(
                                         origin=resolved_intent.origin,
-                                        destination=resolved_intent.destination,
+                                        destination=flight_dest,
                                         outbound_date=date_ctx.flight_outbound_date,
                                         return_date=date_ctx.flight_return_date,
                                         people=people_val,
                                         travel_class=resolved_intent.transport_class,
                                         booking_token=raw_booking_token,
                                     )
+                                if selected_transport:
+                                    import hashlib
+                                    from budlance.db.repositories.cache_repo import CacheRepository
+                                    b_id = hashlib.sha256((str(raw_booking_token) or str(target_link) or str(uuid4())).encode("utf-8")).hexdigest()[:12]
+                                    CacheRepository().store_booking_request(b_id, {"url": target_link})
+                                    base_url = get_settings().effective_public_base_url
+                                    booking_link = f"{base_url}/book/{b_id}"
+                                    selected_transport.deep_link = booking_link
+                                else:
+                                    booking_link = target_link
 
                             operator = (
                                 getattr(selected_transport, "name_or_operator", None)
@@ -1120,6 +1280,91 @@ class BudlanceOrchestrator:
                                 duration_days=days_val,
                                 status="PLANNING",
                                 is_active=True,
+                            )
+                            self._cached_trip_bookings[planning_trip.id] = (selected_transport, baseline_hotel)
+                            try:
+                                self.ledger_manager.initialize_ledger(
+                                    trip_id=planning_trip.id,
+                                    evaluation=transport_eval,
+                                )
+                            except Exception as _lexc:
+                                logger.warning("Could not initialize ledger for preview trip: %s", _lexc)
+
+                            dest_title = (resolved_intent.destination or "Destination").strip().title()
+                            highlights_note = None
+                            try:
+                                places_env = await self.cache_manager.get_travel_data(
+                                    engine="google_maps",
+                                    params={
+                                        "q": resolve_places_query(_dest),
+                                        "location": _dest,
+                                        "hl": "en",
+                                        "type": "search",
+                                    },
+                                )
+                                if places_env and places_env.source in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE):
+                                    live_places = self.normalizer.normalize_places(places_env) or []
+                                    rated_places = [p for p in live_places if getattr(p, "name", None) and getattr(p, "rating", None)]
+                                    if rated_places:
+                                        parts = [f"{p.name} (⭐ {p.rating})" for p in rated_places[:2]]
+                                        highlights_note = f"Highlights: {', '.join(parts)}."
+                            except Exception:
+                                highlights_note = None
+
+                            interest_note = None
+                            if resolved_intent.interests:
+                                if any("theme park" in (i or "").lower() for i in resolved_intent.interests):
+                                    if get_settings().serpapi_live_enabled:
+                                        try:
+                                            tp_env = await self.cache_manager.get_travel_data(
+                                                engine="google_maps",
+                                                params={
+                                                    "q": f"theme park near {_dest}",
+                                                    "location": _dest,
+                                                    "hl": "en",
+                                                    "type": "search",
+                                                },
+                                            )
+                                            if tp_env and tp_env.source in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE):
+                                                tp_places = self.normalizer.normalize_places(tp_env) or []
+                                                if tp_places:
+                                                    p0 = tp_places[0]
+                                                    interest_note = f"Theme park: {p0.name} is located nearby."
+                                                else:
+                                                    interest_note = f"Theme park: No theme park found in {dest_title}."
+                                            else:
+                                                interest_note = "Theme park: I couldn't check for theme parks right now."
+                                        except Exception:
+                                            interest_note = "Theme park: I couldn't check for theme parks right now."
+                                    else:
+                                        interest_note = "Theme park: I couldn't check for theme parks right now."
+
+                            nearest_city = transfer_info.get("nearest_city", "nearest airport") if transfer_info else "nearest hub"
+                            trans_hours = transfer_info.get("transfer_hours", 3.5) if transfer_info else 3.5
+                            if transfer_info and days_val <= 2:
+                                add_day_statement = (
+                                    f"{dest_title} has no airport, so you fly to {nearest_city} and drive about {trans_hours} hours each way. "
+                                    f"With {days_val} days, most of your time is travelling — consider adding an extra day to explore more."
+                                )
+                            elif transfer_info:
+                                add_day_statement = (
+                                    f"{dest_title} has no airport, so you fly to {nearest_city} and drive about {trans_hours} hours each way."
+                                )
+                            else:
+                                add_day_statement = None
+
+                            flight_is_estimate = not (
+                                get_settings().serpapi_live_enabled
+                                and getattr(selected_transport, "source", None) == DataSource.LIVE
+                                and not getattr(selected_transport, "is_fallback", False)
+                            )
+                            hotel_is_estimate = not (
+                                get_settings().serpapi_live_enabled
+                                and baseline_hotel is not None
+                                and getattr(baseline_hotel, "source", None) == DataSource.LIVE
+                                and not getattr(baseline_hotel, "is_fallback", False)
+                                and getattr(baseline_hotel, "rating", None) is not None
+                                and getattr(baseline_hotel, "review_count", None) is not None
                             )
 
                             self.conversation_repo.save_pending_intent(chat_id, resolved_intent)
@@ -1146,7 +1391,21 @@ class BudlanceOrchestrator:
                                     arrival_time=getattr(selected_transport, "arrival_time", None),
                                     outbound_date=date_ctx.flight_outbound_date,
                                     return_date=date_ctx.flight_return_date,
-                                    is_assumed_date=True,
+                                    is_assumed_date=not bool(resolved_intent.start_date),
+                                    transfer_info=transfer_info,
+                                    flight_cost=flight_cost,
+                                    taxi_cost=taxi_cost,
+                                    hotel_cost=hotel_cost,
+                                    food_cost=food_est.total_cost + transit_est.total_cost,
+                                    activities_cost=activities_budget,
+                                    buffer_cost=buffer_cost,
+                                    interest_note=interest_note,
+                                    days=days_val,
+                                    total_budget=budget_val,
+                                    flight_is_estimate=flight_is_estimate,
+                                    hotel_is_estimate=hotel_is_estimate,
+                                    highlights_note=highlights_note,
+                                    add_day_statement=add_day_statement,
                                 ),
                             )
                         else:
@@ -1955,7 +2214,7 @@ class BudlanceOrchestrator:
             await parsed_rescue
 
         if self.enable_trip_pass and chat_id not in self._demo_bypass_chats:
-            active_trip = self.trip_repo.get_active_trip(chat_id)
+            active_trip = self.trip_repo.get_active_trip(chat_id) or self.trip_repo.get_planning_trip(chat_id)
             if active_trip:
                 pass_rec = self.trip_pass_repo.get_by_trip_id(active_trip.id)
                 if not pass_rec or not pass_rec.is_unlocked:
@@ -1988,7 +2247,7 @@ class BudlanceOrchestrator:
                 proposal=rescue_res.pending_proposal,
             )
 
-        active_trip = self.trip_repo.get_active_trip(chat_id)
+        active_trip = self.trip_repo.get_active_trip(chat_id) or self.trip_repo.get_planning_trip(chat_id)
         selected_dest = (
             active_trip.destination
             if (active_trip and isinstance(getattr(active_trip, "destination", None), str))
@@ -2020,7 +2279,7 @@ class BudlanceOrchestrator:
                 return OrchestrationResult(
                     status="CLARIFICATION",
                     message_text=(
-                        "I noticed you're asking an in-trip question, but you don't have an active trip yet! 🌴\n\n"
+                        "I noticed you're asking an in-trip question, but you don't have an active trip yet.\n\n"
                         "Tell me where you'd like to go, your budget, number of people, and duration to get started planning."
                     ),
                 )
@@ -2033,9 +2292,9 @@ class BudlanceOrchestrator:
                     trip_id=active_trip.id,
                     status="PASS_LOCKED",
                     message_text=(
-                        "🔒 *In-Trip Companion is Locked*\n\n"
+                        "In-Trip Companion is locked.\n\n"
                         "Live contextual assistance requires an active Budlance Trip Pass.\n"
-                        "Send `/trip_pass` to unlock for ₹49, or use `/demo_pass` for demo evaluation."
+                        "Send `/trip_pass` to unlock for Rs 49, or use `/demo_pass` for demo evaluation."
                     ),
                     is_pass_unlocked=False,
                     pass_status=pass_rec.status if pass_rec else "FREE",
@@ -3277,6 +3536,22 @@ class BudlanceOrchestrator:
             days=date_ctx.days,
         )
 
+        from budlance.serpapi.location import resolve_nearest_airport_with_transfer
+        transfer_info = resolve_nearest_airport_with_transfer(destination)
+        if not preferred_transports and transfer_info:
+            transfer_transports = await self.lookup_transport_options(
+                origin=origin,
+                destination=transfer_info["nearest_city"],
+                people=people,
+                transport_mode="flight",
+                transport_class=transport_class,
+                outbound_date=date_ctx.flight_outbound_date,
+                return_date=date_ctx.flight_return_date,
+                days=date_ctx.days,
+            )
+            if transfer_transports:
+                preferred_transports = transfer_transports
+
         all_transports: list[FlightOption | TransitOption] = list(preferred_transports)
 
         primary_transport = all_transports[0] if all_transports else None
@@ -3551,7 +3826,7 @@ class BudlanceOrchestrator:
                 deep_link=f"https://www.google.com/travel/hotels/{trip.destination or ''}",
             )
 
-        if breakdown:
+        if breakdown and itin_record:
             plan_text = format_feasible_plan(
                 destination=trip.destination or "Destination",
                 days=trip.duration_days,
@@ -3569,18 +3844,77 @@ class BudlanceOrchestrator:
             else:
                 msg_text = f"🎟️ *Budlance Trip Pass: ACTIVE ✅ (Verified Stripe Payment)*\n\n{plan_text}"
         else:
-            if is_demo or pass_record.status == "DEMO_ACCESS":
-                msg_text = (
-                    f"🎟️ *Budlance Trip Pass Unlocked via Judge/Demo Bypass!* ✅\n\n"
-                    f"Your trip to {trip.destination} is fully unlocked. Complete day-by-day attraction schedule, "
-                    f"booking links, and live In-Trip Rescue are now active."
-                )
-            else:
-                msg_text = (
-                    f"🎟️ *Budlance Trip Pass Unlocked!* ✅\n\n"
-                    f"Your payment has been verified. Complete day-by-day attraction schedule, "
-                    f"booking links, and live In-Trip Rescue for {trip.destination} are now active."
-                )
+            msg_text = (
+                "🎟️ <b>Budlance Trip Pass Unlocked!</b> ✅\n\n"
+                f"Your trip to {trip.destination} is fully unlocked. Complete day-by-day attraction schedule, "
+                "booking links, and live In-Trip Rescue are now active."
+            )
+
+            link_lines = []
+            is_live_flight = (
+                cached_trans is not None
+                and getattr(cached_trans, "source", None) in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE)
+            )
+            is_live_hotel = (
+                cached_hot is not None
+                and getattr(cached_hot, "source", None) in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE)
+            )
+
+            if is_live_flight:
+                carrier = getattr(cached_trans, "airline", None) or getattr(cached_trans, "name_or_operator", "Airline")
+                flight_num = getattr(cached_trans, "flight_number", None)
+                fn_str = f" ({flight_num})" if flight_num else ""
+                t_price = getattr(cached_trans, "price", None)
+                t_link = getattr(cached_trans, "deep_link", None)
+                link_lines.append("✈️ <b>Flight Booking:</b>")
+                link_lines.append(f"• Airline: {carrier}{fn_str}")
+                if t_price:
+                    link_lines.append(f"• Round-trip Flight Cost: Rs {int(round(t_price)):,}")
+                if t_link:
+                    link_lines.append(f"• <a href=\"{t_link}\">Book {carrier} Flight</a>")
+            elif cached_trans:
+                t_price = getattr(cached_trans, "price", None)
+                link_lines.append("✈️ <b>Flight Booking:</b>")
+                if t_price:
+                    link_lines.append(f"• Round-trip Flights (estimate): Rs {int(round(t_price)):,}")
+                else:
+                    link_lines.append("• Round-trip Flights (estimate)")
+
+            from budlance.serpapi.location import resolve_nearest_airport_with_transfer
+            transfer_info = getattr(cached_trans, "_transfer_info", None) if cached_trans else None
+            if not transfer_info and trip.destination:
+                transfer_info = resolve_nearest_airport_with_transfer(trip.destination)
+            if transfer_info:
+                n_city = transfer_info.get("nearest_city", "nearest airport")
+                t_km = transfer_info.get("transfer_km", 130)
+                t_hrs = transfer_info.get("transfer_hours", 3.5)
+                link_lines.append(f"\n🚕 <b>Taxi Transfer:</b> {n_city} → {trip.destination} (~{t_km} km, about {t_hrs} hrs drive each way)")
+
+            if is_live_hotel:
+                h_name = getattr(cached_hot, "name", f"Hotel in {trip.destination}")
+                h_price = getattr(cached_hot, "total_price", None)
+                h_rating = getattr(cached_hot, "rating", None)
+                h_reviews = getattr(cached_hot, "review_count", None) or getattr(cached_hot, "reviews", None)
+                is_relaxed = getattr(cached_hot, "is_relaxed_tier", False) or (h_reviews is not None and h_reviews < 50)
+                reviews_tag = " · limited reviews" if is_relaxed else ""
+                rating_str = f" (⭐ {h_rating} · {h_reviews} reviews{reviews_tag})" if h_rating and h_reviews else (f" (⭐ {h_rating})" if h_rating else "")
+                h_link = getattr(cached_hot, "deep_link", None) or f"https://www.google.com/travel/hotels?q=Hotels+in+{trip.destination or ''}"
+                link_lines.append("\n🏨 <b>Hotel Selection:</b>")
+                link_lines.append(f"• Property: {h_name}{rating_str}")
+                if h_price:
+                    link_lines.append(f"• Stay Cost: Rs {int(round(h_price)):,}")
+                link_lines.append(f"• <a href=\"{h_link}\">Book {h_name}</a>")
+            elif cached_hot:
+                h_price = getattr(cached_hot, "total_price", None)
+                nights_val = getattr(cached_hot, "nights", None) or 1
+                link_lines.append("\n🏨 <b>Hotel Selection:</b>")
+                if h_price:
+                    link_lines.append(f"• Stay, {nights_val} night{'s' if nights_val > 1 else ''} (estimate): Rs {int(round(h_price)):,}")
+                else:
+                    link_lines.append(f"• Stay, {nights_val} night{'s' if nights_val > 1 else ''} (estimate)")
+
+            if link_lines:
+                msg_text += "\n\n" + "\n".join(link_lines)
 
         return OrchestrationResult(
             trip_id=trip.id,
@@ -3637,6 +3971,208 @@ class BudlanceOrchestrator:
         )
 
         return await self._format_unlocked_trip_result(trip, chat_id, pass_record, is_demo=True)
+
+    async def _handle_unlocked_links_request(self, chat_id: int, trip: Any, pass_record: Any) -> OrchestrationResult:
+        """Backwards compatibility wrapper for unlocked links requests."""
+        return await self._handle_booking_links_request(chat_id, target="all")
+
+    async def _handle_booking_links_request(self, chat_id: int, target: str = "all") -> OrchestrationResult:
+        """Handle request for booking links (hotel, flight, or all) adhering strictly to Step 3 reply rules."""
+        trip = self.trip_repo.get_planning_trip(chat_id) or self.trip_repo.get_active_trip(chat_id)
+        if not trip:
+            return OrchestrationResult(
+                status="NO_TRIP",
+                message_text="Please plan a trip first.",
+            )
+
+        pass_record = self.trip_pass_repo.get_by_trip_id(trip.id)
+        if not pass_record or not pass_record.is_unlocked:
+            session = await self.payment_service.create_checkout_session(
+                trip_id=trip.id,
+                chat_id=chat_id,
+                user_id=trip.user_id,
+            )
+            fee_str = f"Rs {int(round(session.amount)):,}"
+            budget_str = f"Rs {int(round(trip.budget_total)):,}" if trip.budget_total else "your travel budget"
+            demo_line = "\n\n(Judge/Demo review: send /demo_pass to unlock instantly without payment)" if not get_settings().is_production else ""
+            locked_msg = (
+                f"Your full trip plan is ready to unlock with a {fee_str} Trip Pass. "
+                f"This service fee is separate from your {budget_str} travel budget.\n\n"
+                f"Would you like to proceed to secure checkout?\n"
+                f"<a href=\"{session.checkout_url}\">Proceed to Secure Checkout</a>"
+                f"{demo_line}"
+            )
+            return OrchestrationResult(
+                trip_id=trip.id,
+                status="CHECKOUT_PENDING",
+                message_text=locked_msg,
+                is_pass_unlocked=False,
+            )
+
+        cached_trans, cached_hot = self._cached_trip_bookings.get(trip.id, (None, None))
+        itin = self.itinerary_repo.get_itinerary(trip.id)
+        dest = trip.destination or "Destination"
+
+        def _format_hotel_only() -> str:
+            is_live = (
+                cached_hot is not None
+                and getattr(cached_hot, "source", None) in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE)
+            )
+            if not is_live:
+                return (
+                    f"Your stay in {dest} (estimate)\n"
+                    "I could not get live hotel details for these dates."
+                )
+
+            h_name = getattr(cached_hot, "name", f"Hotel in {dest}")
+            h_rating = getattr(cached_hot, "rating", None)
+            h_reviews = getattr(cached_hot, "review_count", None) or getattr(cached_hot, "reviews", None)
+            if h_rating is not None and h_reviews is not None:
+                rating_str = f"({h_rating} stars from {h_reviews} reviews)"
+            elif h_rating is not None:
+                rating_str = f"({h_rating} stars)"
+            else:
+                rating_str = "(no rating available)"
+
+            cin = getattr(cached_hot, "check_in_date", None)
+            cout = getattr(cached_hot, "check_out_date", None)
+            nights = getattr(cached_hot, "nights", None)
+            if (not cin or not cout) and itin and getattr(itin, "days", None):
+                first_day = itin.days[0]
+                last_day = itin.days[-1]
+                cin = first_day.get("date_str") if isinstance(first_day, dict) else getattr(first_day, "date_str", None)
+                cout = last_day.get("date_str") if isinstance(last_day, dict) else getattr(last_day, "date_str", None)
+            if not nights or nights <= 0:
+                nights = (trip.duration_days - 1) if (trip.duration_days and trip.duration_days > 1) else 1
+
+            nights_str = f"{nights} nights" if nights != 1 else "1 night"
+            dates_str = f"{cin} to {cout}, {nights_str}" if (cin and cout) else nights_str
+
+            p_night = getattr(cached_hot, "price_per_night", None)
+            p_total = getattr(cached_hot, "total_price", None)
+            if p_total is not None and (p_night is None or p_night <= 0) and nights:
+                p_night = p_total / Decimal(nights)
+            elif p_night is not None and (p_total is None or p_total <= 0) and nights:
+                p_total = p_night * Decimal(nights)
+
+            price_night_str = f"Rs {int(round(p_night)):,}" if p_night else "Rs 0"
+            price_total_str = f"Rs {int(round(p_total)):,}" if p_total else "Rs 0"
+            price_line = f"{price_night_str} per night, {price_total_str} in total"
+
+            h_link = getattr(cached_hot, "deep_link", None)
+            if h_link and str(h_link).startswith(("http://", "https://", "/book/")):
+                link_line = f"Book this hotel: <a href=\"{h_link}\">Book {h_name}</a>"
+            elif dest:
+                import urllib.parse
+                search_params = {"q": f"Hotels in {dest}"}
+                if cin: search_params["checkin"] = str(cin)
+                if cout: search_params["checkout"] = str(cout)
+                n_adults = getattr(trip, "people_count", 1) or 1
+                search_params["adults"] = str(n_adults)
+                g_url = f"https://www.google.com/travel/hotels?{urllib.parse.urlencode(search_params)}"
+                link_line = f"Book this hotel: <a href=\"{g_url}\">Book {h_name}</a>"
+            else:
+                link_line = "I could not get a hotel link for these dates"
+
+            h_lines = [
+                f"Your stay in {dest}",
+                f"{h_name} {rating_str}",
+                dates_str,
+                price_line,
+                link_line,
+                "You pay the hotel directly.",
+            ]
+
+            ts = getattr(cached_hot, "retrieval_timestamp", None)
+            if not ts and getattr(cached_hot, "provenance", None):
+                ts = getattr(cached_hot.provenance, "checked_at", None) or getattr(cached_hot.provenance, "retrieval_timestamp", None)
+            if ts:
+                ts_str = ts.strftime("%d %b %Y, %H:%M") if hasattr(ts, "strftime") else str(ts)
+                h_lines.append(f"Prices checked: {ts_str}")
+
+            return "\n".join(h_lines)
+
+        def _format_flight_only() -> str:
+            is_live = (
+                cached_trans is not None
+                and getattr(cached_trans, "source", None) in (DataSource.LIVE, DataSource.CACHED, DataSource.CACHED_LIVE)
+            )
+            if not is_live:
+                return (
+                    f"Your flight to {dest} (estimate)\n"
+                    "I could not get live flight details for these dates."
+                )
+
+            carrier = getattr(cached_trans, "airline", None) or getattr(cached_trans, "name_or_operator", "Airline")
+            fn = getattr(cached_trans, "flight_number", None)
+            carrier_line = f"{carrier} ({fn})" if fn else carrier
+
+            out_d = getattr(cached_trans, "outbound_date", None)
+            ret_d = getattr(cached_trans, "return_date", None)
+            if (not out_d or not ret_d) and itin and getattr(itin, "days", None):
+                first_day = itin.days[0]
+                last_day = itin.days[-1]
+                out_d = first_day.get("date_str") if isinstance(first_day, dict) else getattr(first_day, "date_str", None)
+                ret_d = last_day.get("date_str") if isinstance(last_day, dict) else getattr(last_day, "date_str", None)
+
+            if out_d and ret_d:
+                dates_line = f"{out_d} to {ret_d}, round-trip"
+            elif out_d:
+                dates_line = f"{out_d}, one-way"
+            else:
+                dates_line = "Round-trip flights"
+
+            price = getattr(cached_trans, "price", None)
+            passengers = getattr(trip, "people_count", 1) or 1
+            p_str = f"for {passengers} {'traveler' if passengers == 1 else 'travelers'}"
+            price_line = f"Rs {int(round(price)):,} {p_str}" if price else "Rs 0 in total"
+
+            f_link = getattr(cached_trans, "deep_link", None)
+            if f_link and str(f_link).startswith(("http://", "https://", "/book/")):
+                link_line = f"Book this flight: <a href=\"{f_link}\">Book {carrier} Flight</a>"
+            elif dest:
+                import urllib.parse
+                origin = trip.origin or "Origin"
+                g_url = f"https://www.google.com/travel/flights?q=Flights+from+{urllib.parse.quote_plus(origin)}+to+{urllib.parse.quote_plus(dest)}"
+                link_line = f"Book this flight: <a href=\"{g_url}\">Book {carrier} Flight</a>"
+            else:
+                link_line = "I could not get a flight link for these dates"
+
+            f_lines = [
+                f"Your flight to {dest}",
+                carrier_line,
+                dates_line,
+                price_line,
+                link_line,
+                "You pay the airline directly.",
+            ]
+
+            ts = getattr(cached_trans, "retrieval_timestamp", None)
+            if not ts and getattr(cached_trans, "provenance", None):
+                ts = getattr(cached_trans.provenance, "checked_at", None) or getattr(cached_trans.provenance, "retrieval_timestamp", None)
+            if ts:
+                ts_str = ts.strftime("%d %b %Y, %H:%M") if hasattr(ts, "strftime") else str(ts)
+                f_lines.append(f"Prices checked: {ts_str}")
+
+            return "\n".join(f_lines)
+
+        if target == "hotel":
+            msg_text = _format_hotel_only()
+        elif target == "flight":
+            msg_text = _format_flight_only()
+        else:
+            msg_text = f"{_format_flight_only()}\n\n{_format_hotel_only()}"
+
+        return OrchestrationResult(
+            trip_id=trip.id,
+            status="FEASIBLE_TRANSPORT",
+            selected_destination=trip.destination,
+            selected_transport=cached_trans,
+            selected_hotel=cached_hot,
+            message_text=msg_text,
+            is_pass_unlocked=True,
+            pass_status=pass_record.status,
+        )
 
     async def _handle_pass_status_command(self, chat_id: int) -> OrchestrationResult:
         """Display pass status or provide payment link for the current trip."""

@@ -90,7 +90,7 @@ class InTripCompanionHandler:
         if q == "food":
             return await self._handle_food_query(trip, user_message)
         if q == "route":
-            return self._handle_route_query(trip)
+            return self._handle_route_query(trip, user_message)
         if q == "transport_transit":
             return self._handle_transit_query(trip, user_message)
         if q == "movie":
@@ -148,24 +148,28 @@ class InTripCompanionHandler:
                     pass
 
         day_schedule = next((d for d in days if d.day_number == current_day_num), None)
-        date_label = f" ({day_schedule.date_str})" if day_schedule and getattr(day_schedule, "date_str", None) else ""
+        raw_date_str = getattr(day_schedule, "date_str", None) if day_schedule else None
+        if raw_date_str and not str(raw_date_str).strip().lower().startswith("day"):
+            date_label = f" ({str(raw_date_str).strip()})"
+        else:
+            date_label = ""
 
         if not day_schedule or not day_schedule.items:
             return CompanionResponse(
                 trip_id=trip.id,
                 query_type="today",
-                message_text=f"🗓️ *Day {current_day_num}{date_label} in {trip.destination}:* Free exploration day. No fixed scheduled activities.",
+                message_text=f"Day {current_day_num}{date_label} in {trip.destination}: Free exploration day. No fixed scheduled activities.",
             )
 
-        lines = [f"🗓️ *Plan for Day {current_day_num}{date_label} in {trip.destination}:*"]
+        lines = [f"Plan for Day {current_day_num}{date_label} in {trip.destination}:"]
         for it in day_schedule.items:
             time_str = f"[{it.time_slot}] " if it.time_slot else ""
-            cost_str = f" (Est. ₹{format_currency_amount(it.planned_cost)})" if it.planned_cost > 0 else ""
-            lines.append(f"• {time_str}*{it.place_name}*: {it.activity}{cost_str}")
+            cost_str = f" (Est. Rs {int(round(it.planned_cost)):,})" if it.planned_cost > 0 else ""
+            lines.append(f"- {time_str}{it.place_name}: {it.activity}{cost_str}")
 
         hotel_rec = getattr(day_schedule, "hotel_recommendation", None)
         if hotel_rec:
-            lines.append(f"\n🏨 *Stay:* {hotel_rec}")
+            lines.append(f"\nStay: {hotel_rec}")
 
         return CompanionResponse(
             trip_id=trip.id,
@@ -194,13 +198,13 @@ class InTripCompanionHandler:
 
         # Select first activity or upcoming activity
         next_item = current_day.items[0]
-        cost_str = f" (Est. ₹{format_currency_amount(next_item.planned_cost)})" if next_item.planned_cost > 0 else " (Free admission)"
+        cost_str = f" (Est. Rs {int(round(next_item.planned_cost)):,})" if next_item.planned_cost > 0 else " (Free admission)"
         msg = (
-            f"📍 *Next Scheduled Activity on Day {trip.current_day}:*\n\n"
-            f"• *{next_item.place_name}*\n"
-            f"• Activity: {next_item.activity}\n"
-            f"• Timing: {next_item.time_slot or 'Scheduled today'}\n"
-            f"• Cost: {cost_str}"
+            f"Next scheduled activity on Day {trip.current_day}:\n\n"
+            f"- Place: {next_item.place_name}\n"
+            f"- Activity: {next_item.activity}\n"
+            f"- Timing: {next_item.time_slot or 'Scheduled today'}\n"
+            f"- Cost:{cost_str}"
         )
         return CompanionResponse(
             trip_id=trip.id,
@@ -210,9 +214,12 @@ class InTripCompanionHandler:
 
     def _handle_budget_query(self, trip: Trip, user_message: str) -> CompanionResponse:
         """Answer budget checks, remaining funds, and affordability queries."""
-        summary = self.ledger_manager.get_summary(trip.id)
+        try:
+            summary = self.ledger_manager.get_summary(trip.id)
+        except Exception:
+            summary = None
 
-        # Check if user asked whether they can afford a specific amount e.g. "Can I afford ₹1,200?"
+        # Check if user asked whether they can afford a specific amount e.g. "Can I afford Rs 1,200?"
         amt_match = re.search(r"(?:₹|rs\.?|inr)?\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)", user_message.lower())
         asked_amt = None
         if amt_match:
@@ -223,25 +230,31 @@ class InTripCompanionHandler:
             except Exception:
                 pass
 
-        unspent = summary.unspent_balance
-        reserve = summary.unspent_reserve
+        if summary is not None:
+            spent = getattr(summary, "total_spent", Decimal("0.00"))
+            unspent = getattr(summary, "total_remaining", Decimal("0.00"))
+            reserve = getattr(summary, "rescue_reserve_remaining", Decimal("0.00"))
+        else:
+            spent = Decimal("0.00")
+            unspent = trip.budget_total or Decimal("0.00")
+            reserve = Decimal("5000.00") if unspent >= Decimal("5000.00") else unspent * Decimal("0.10")
 
         lines = [
-            f"💰 *Budget Status for {trip.destination}:*",
-            f"• *Total Budget:* ₹{format_currency_amount(trip.budget_total)}",
-            f"• *Total Spent So Far:* ₹{format_currency_amount(summary.total_spent)}",
-            f"• *Remaining Unspent Balance:* ₹{format_currency_amount(unspent)}",
-            f"• *Emergency Reserve Available:* ₹{format_currency_amount(reserve)}",
+            f"Budget status for {trip.destination}:",
+            f"- Total budget: Rs {int(round(trip.budget_total)):,}",
+            f"- Total spent so far: Rs {int(round(spent)):,}",
+            f"- Remaining balance: Rs {int(round(unspent)):,}",
+            f"- Emergency buffer available: Rs {int(round(reserve)):,}",
         ]
 
         if asked_amt is not None:
-            formatted_asked = format_currency_amount(asked_amt)
+            formatted_asked = f"Rs {int(round(asked_amt)):,}"
             if unspent >= asked_amt:
-                lines.append(f"\n✅ *Yes!* You can comfortably afford this activity (₹{formatted_asked}). You have ₹{format_currency_amount(unspent)} remaining.")
+                lines.append(f"\nYes! You can comfortably afford this activity ({formatted_asked}). You have Rs {int(round(unspent)):,} remaining.")
             elif (unspent + reserve) >= asked_amt:
-                lines.append(f"\n⚠️ *Caution:* The activity costs ₹{formatted_asked}, but your general balance has only ₹{format_currency_amount(unspent)}. Covering it would dip into your emergency reserve (₹{format_currency_amount(reserve)} available).")
+                lines.append(f"\nCaution: The activity costs {formatted_asked}, but your general balance has only Rs {int(round(unspent)):,}. Covering it would dip into your emergency buffer (Rs {int(round(reserve)):,} available).")
             else:
-                lines.append(f"\n❌ *Budget Alert:* The activity costs ₹{formatted_asked}, but your total remaining funds (including reserve) are only ₹{format_currency_amount(unspent + reserve)}.")
+                lines.append(f"\nBudget alert: The activity costs {formatted_asked}, but your total remaining funds (including buffer) are only Rs {int(round(unspent + reserve)):,}.")
 
         return CompanionResponse(
             trip_id=trip.id,
@@ -268,17 +281,17 @@ class InTripCompanionHandler:
         selected = food_places[:3] if food_places else places[:3]
 
         lines = [
-            f"🍽️ *Dining Suggestions in {dest}:*",
+            f"Dining suggestions in {dest}:",
         ]
         if selected:
             for p in selected:
-                rating_str = f" ⭐ {p.rating}" if p.rating else ""
-                lines.append(f"• *{p.name}*{rating_str} — {p.category or 'Local cuisine'}")
+                rating_str = f" ({p.rating} stars)" if p.rating else ""
+                lines.append(f"- {p.name}{rating_str} - {p.category or 'Local cuisine'}")
         else:
-            lines.append(f"• Try local cafes and beachside shacks in {dest}.")
+            lines.append(f"- Try local cafes and restaurants in {dest}.")
 
         lines.append(
-            "\nℹ️ *Note:* Budlance operates without background GPS tracking. "
+            "\nNote: Budlance operates without background GPS tracking. "
             "Suggestions are based on top-rated dining spots in your trip destination."
         )
 
@@ -288,16 +301,25 @@ class InTripCompanionHandler:
             message_text="\n".join(lines),
         )
 
-    def _handle_route_query(self, trip: Trip) -> CompanionResponse:
-        """Answer route questions, disclosing lack of real-time GPS traffic."""
+    def _handle_route_query(self, trip: Trip, user_message: str = "") -> CompanionResponse:
+        """Answer route questions and local transit cost estimates, disclosing lack of real-time GPS traffic."""
         dest = trip.destination or "Destination"
-        msg = (
-            f"🗺️ *Route & Local Transit Guidance for {dest}:*\n\n"
-            f"• *Recommended transit:* Auto-rickshaw, app cab, or local bus.\n"
-            f"• *Estimated transit time:* 20–35 minutes between central attractions.\n\n"
-            f"ℹ️ *Note:* Budlance is a travel planner and does not provide live turn-by-turn GPS or real-time traffic updates. "
-            f"We recommend using Google Maps or a local transit app for real-time turn directions."
-        )
+        clean_msg = user_message.lower()
+        if any(w in clean_msg for w in ("cost", "fare", "price", "how much", "theatre", "theater", "cinema")):
+            msg = (
+                f"Transit cost estimate for {dest}:\n\n"
+                f"- Estimated travel cost: Rs 150 - Rs 250 by auto-rickshaw or app cab (~6-10 km).\n"
+                f"- Budget allocation: Covered under your daily local travel budget and emergency buffer.\n\n"
+                f"Note: Fares may vary slightly based on local traffic and surge pricing."
+            )
+        else:
+            msg = (
+                f"Route and local transit guidance for {dest}:\n\n"
+                f"- Recommended transit: Auto-rickshaw, app cab, or local bus.\n"
+                f"- Estimated transit time: 20-35 minutes between central attractions.\n\n"
+                f"Note: Budlance is a travel planner and does not provide live turn-by-turn GPS or real-time traffic updates. "
+                f"We recommend using Google Maps or a local transit app for real-time turn directions."
+            )
         return CompanionResponse(
             trip_id=trip.id,
             query_type="route",
@@ -308,12 +330,18 @@ class InTripCompanionHandler:
         """Answer airport / transfer planning requests."""
         dest = trip.destination or "Destination"
         msg = (
-            f"✈️ *Transfer Guidance for {dest} Airport:*\n\n"
-            f"• *Departure timing:* Aim to leave for the airport at least 2.5–3 hours before your scheduled flight.\n"
-            f"• *Transit options:* Pre-paid airport taxi or verified cab ride.\n"
-            f"• *Budget estimate:* Typically ₹500–₹900 depending on pickup distance.\n\n"
+            f"Transfer guidance for {dest} airport:\n\n"
+            f"- Departure timing: Aim to leave for the airport at least 2.5-3 hours before your scheduled flight.\n"
+            f"- Transit options: Pre-paid airport taxi or verified cab ride.\n"
+            f"- Budget estimate: Typically Rs 500 to Rs 900 depending on pickup distance.\n\n"
             f"Safe travels on your journey!"
         )
+        return CompanionResponse(
+            trip_id=trip.id,
+            query_type="transport_transit",
+            message_text=msg,
+        )
+
     async def _handle_movie_query(self, trip: Trip, user_message: str) -> CompanionResponse:
         """Answer movie night / showtimes lookup with real local cinemas or honest fallback."""
         dest = trip.destination or "Destination"
@@ -341,13 +369,13 @@ class InTripCompanionHandler:
         bms_url = f"https://in.bookmyshow.com/explore/movies-{dest_slug}"
 
         if cinemas:
-            lines = [f"🎬 *Movie Night in {clean_dest}:*"]
+            lines = [f"Movie options in {clean_dest}:"]
             lines.append("Here are local cinema options discovered nearby:\n")
             for c in cinemas[:3]:
-                rating_str = f" (⭐ {c.rating:.1f})" if getattr(c, "rating", None) else ""
+                rating_str = f" ({c.rating:.1f} stars)" if getattr(c, "rating", None) else ""
                 loc_str = getattr(c, "address", None) or clean_dest
-                lines.append(f"• *{c.name}*{rating_str} — {loc_str}")
-            lines.append(f"\n🎟️ *Check live showtimes & book tickets:* {bms_url}")
+                lines.append(f"- {c.name}{rating_str} - {loc_str}")
+            lines.append(f"\nCheck live showtimes and book tickets: {bms_url}")
             return CompanionResponse(
                 trip_id=trip.id,
                 query_type="movie",
@@ -356,11 +384,11 @@ class InTripCompanionHandler:
 
         # Honest fallback (e.g. hill stations like Munnar without active commercial multiplexes)
         lines = [
-            f"🎬 *Movie Night in {clean_dest}:*",
+            f"Movie options in {clean_dest}:",
             f"No commercial movie theatres or multiplex showtimes found in {clean_dest}.",
-            f"",
-            f"💡 *Local Recommendation:* Enjoy an evening bonfire, acoustic music, or stargazing session at your resort, or relax with a streaming movie over hotel Wi-Fi!",
-            f"🎟️ *Regional Showtimes:* If you are heading towards a major hub, check Kerala/regional showtimes on BookMyShow: https://in.bookmyshow.com/explore/movies-kochi",
+            "",
+            f"Local recommendation: Enjoy an evening bonfire, acoustic music, or stargazing session at your resort, or relax with a streaming movie over hotel Wi-Fi.",
+            f"Regional showtimes: If you are heading towards a major hub, check Kerala or regional showtimes on BookMyShow: https://in.bookmyshow.com/explore/movies-kochi",
         ]
         return CompanionResponse(
             trip_id=trip.id,
@@ -371,15 +399,15 @@ class InTripCompanionHandler:
     def _handle_general(self, trip: Trip) -> CompanionResponse:
         """General active trip status summary."""
         msg = (
-            f"✈️ *Active Trip to {trip.destination}:*\n\n"
-            f"• Day: Day {trip.current_day} of {trip.duration_days}\n"
-            f"• Budget: ₹{format_currency_amount(trip.budget_total)}\n\n"
+            f"Active trip to {trip.destination}:\n\n"
+            f"- Day: Day {trip.current_day} of {trip.duration_days}\n"
+            f"- Budget: Rs {int(round(trip.budget_total)):,}\n\n"
             f"You can ask me:\n"
-            f"• `What is planned for today?`\n"
-            f"• `What is the next activity?`\n"
-            f"• `Find somewhere good to eat`\n"
-            f"• `How much budget is left?`\n"
-            f"• `Spent ₹500 on dinner` to record an expense."
+            f"- What is planned for today?\n"
+            f"- What is the next activity?\n"
+            f"- Find somewhere good to eat\n"
+            f"- How much budget is left?\n"
+            f"- Spent Rs 500 on dinner (to record an expense)"
         )
         return CompanionResponse(
             trip_id=trip.id,

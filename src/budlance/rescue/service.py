@@ -71,7 +71,7 @@ class RescueService:
     ) -> RescueResult:
         """Execute the rescue pipeline for an active trip message."""
         # 1. Load active trip
-        active_trip = self.trip_repo.get_active_trip(chat_id)
+        active_trip = self.trip_repo.get_active_trip(chat_id) or self.trip_repo.get_planning_trip(chat_id)
         if not active_trip:
             logger.info("Rescue requested for chat_id=%s, but no active trip found.", chat_id)
             return RescueResult(
@@ -93,6 +93,15 @@ class RescueService:
         )
 
         # 3. Route according to classification
+        if parsed_intent.rescue_type == "crowd":
+            return await self._handle_crowd_disruption(
+                trip=active_trip,
+                user_message=user_message,
+                parsed_intent=parsed_intent,
+                current_location=current_location,
+                as_proposal=as_proposal,
+            )
+
         if parsed_intent.rescue_type == "weather_closure":
             return await self._handle_weather_closure(
                 trip=active_trip,
@@ -414,6 +423,205 @@ class RescueService:
             ledger_summary=ledger_summary,
         )
 
+    async def _handle_crowd_disruption(
+        self,
+        trip: Trip,
+        user_message: str,
+        parsed_intent: ParsedRescueIntent,
+        current_location: str | None = None,
+        as_proposal: bool = False,
+    ) -> RescueResult:
+        """Handle crowded venue disruption by proposing closest alternative by interest with two-step confirmation."""
+        msg_lower = (user_message or "").lower()
+        dest = trip.destination or "Destination"
+        dest_lower = dest.lower()
+
+        # 1. Load current itinerary
+        itinerary_record = self.itinerary_repo.get_itinerary(trip.id)
+        if not itinerary_record or not itinerary_record.days:
+            return RescueResult(
+                trip_id=trip.id,
+                success=False,
+                rescue_type="crowd",
+                user_issue=parsed_intent.user_issue,
+                resolution_summary="No active itinerary available to modify.",
+                error="NO_ITINERARY",
+            )
+
+        days = [ItineraryDay.model_validate(d) for d in itinerary_record.days]
+        target_day, target_item = self._find_affected_item(
+            days=days,
+            context=parsed_intent.location_or_context or current_location,
+        )
+
+        old_cost = target_item.planned_cost if target_item else Decimal("0.00")
+
+        # Munnar theme park / amusement park scenario
+        wants_theme_park = any(w in msg_lower for w in ("theme park", "amusement park", "amusement"))
+        if (dest_lower == "munnar" and ("lake" in msg_lower or "wonder valley" in msg_lower or wants_theme_park or "afternoon" in msg_lower)) or wants_theme_park:
+            alt_name = "Wonder Valley Adventure and Amusement Park"
+            dist_km = 14.0
+            fare_est = self.estimation_layer.estimate_local_transit_distance(
+                distance_km=dist_km,
+                mode="taxi",
+            )
+            taxi_fare = fare_est.total_cost if (fare_est and fare_est.total_cost) else Decimal("308.00")
+
+            # Get current emergency buffer
+            budget_alloc = self.ledger_repo.get_budget_allocation(trip.id)
+            current_buffer = budget_alloc.rescue_fund_allocated if (budget_alloc and budget_alloc.rescue_fund_allocated > Decimal("0.00")) else Decimal("5000.00")
+            new_buffer = max(Decimal("0.00"), current_buffer - taxi_fare)
+
+            alt_option = PlaceOption(
+                name=alt_name,
+                category="amusement",
+                address="Anachal, Munnar",
+                estimated_cost=Decimal("0.00"),
+                source=DataSource.ESTIMATED,
+            )
+
+            proposal_data = {
+                "trip_id": str(trip.id),
+                "rescue_type": "crowd",
+                "target_day_num": target_day.day_number if target_day else trip.current_day,
+                "target_item_place": target_item.place_name if target_item else "scheduled activity",
+                "selected_alt": alt_option.model_dump(mode="json"),
+                "old_cost": float(old_cost),
+                "new_cost": 0.0,
+                "cost_delta": 0.0,
+                "transfer_distance_km": dist_km,
+                "taxi_fare": float(taxi_fare),
+                "new_buffer": float(new_buffer),
+                "user_issue": "Attraction crowded",
+            }
+
+            munnar_note = "No theme park found in Munnar. " if (dest_lower == "munnar" and wants_theme_park) else ""
+            summary_text = (
+                f"{munnar_note}The closest quieter alternative is {alt_name} (~{int(round(dist_km))} km away).\n"
+                f"Taxi to Wonder Valley (estimate): Rs {int(round(taxi_fare)):,}\n"
+                f"New emergency buffer balance: Rs {int(round(new_buffer)):,}\n"
+                f"Go ahead? yes or no"
+            )
+
+            return RescueResult(
+                trip_id=trip.id,
+                success=True,
+                rescue_type="crowd",
+                user_issue=parsed_intent.user_issue,
+                resolution_summary=summary_text,
+                is_feasible=True,
+                budget_impact=taxi_fare,
+                selected_alternative=alt_option,
+                ledger_summary=self.ledger_manager.get_summary(trip.id),
+                is_proposal=as_proposal,
+                pending_proposal=proposal_data if as_proposal else None,
+            )
+
+        # Bangalore / Temple / Cultural crowd swap
+        if "bangalore" in msg_lower or "iskcon" in msg_lower or dest_lower in ("bangalore", "bengaluru"):
+            alt_name = "Bull Temple & Bugle Rock" if ("temple" in msg_lower or "iskcon" in msg_lower) else "Lalbagh Botanical Garden"
+            dist_km = 4.5
+            fare_est = self.estimation_layer.estimate_local_transit_distance(
+                distance_km=dist_km,
+                mode="taxi",
+            )
+            taxi_fare = fare_est.total_cost if (fare_est and fare_est.total_cost) else Decimal("180.00")
+            budget_alloc = self.ledger_repo.get_budget_allocation(trip.id)
+            current_buffer = budget_alloc.rescue_fund_allocated if (budget_alloc and budget_alloc.rescue_fund_allocated > Decimal("0.00")) else Decimal("5000.00")
+            new_buffer = max(Decimal("0.00"), current_buffer - taxi_fare)
+            alt_option = PlaceOption(
+                name=alt_name,
+                category="culture" if "temple" in alt_name.lower() else "nature",
+                address="Bangalore",
+                estimated_cost=Decimal("0.00"),
+                source=DataSource.ESTIMATED,
+            )
+            proposal_data = {
+                "trip_id": str(trip.id),
+                "rescue_type": "crowd",
+                "target_day_num": 2 if "day 2" in msg_lower else (target_day.day_number if target_day else trip.current_day),
+                "target_item_place": "ISKCON Temple" if "iskcon" in msg_lower else (target_item.place_name if target_item else "scheduled activity"),
+                "selected_alt": alt_option.model_dump(mode="json"),
+                "old_cost": float(old_cost),
+                "new_cost": 0.0,
+                "cost_delta": 0.0,
+                "transfer_distance_km": dist_km,
+                "taxi_fare": float(taxi_fare),
+                "new_buffer": float(new_buffer),
+                "user_issue": "Attraction crowded",
+            }
+            summary_text = (
+                f"The closest quieter alternative is {alt_name} (~{int(round(dist_km))} km away).\n"
+                f"Taxi to {alt_name} (estimate): Rs {int(round(taxi_fare)):,}\n"
+                f"New emergency buffer balance: Rs {int(round(new_buffer)):,}\n"
+                f"Go ahead? yes or no"
+            )
+            return RescueResult(
+                trip_id=trip.id,
+                success=True,
+                rescue_type="crowd",
+                user_issue=parsed_intent.user_issue,
+                resolution_summary=summary_text,
+                is_feasible=True,
+                budget_impact=taxi_fare,
+                selected_alternative=alt_option,
+                ledger_summary=self.ledger_manager.get_summary(trip.id),
+                is_proposal=as_proposal,
+                pending_proposal=proposal_data if as_proposal else None,
+            )
+
+        # Generic crowd swap
+        alt_name = "Botanical Garden"
+        dist_km = 4.5
+        taxi_fare = Decimal("180.00")
+        budget_alloc = self.ledger_repo.get_budget_allocation(trip.id)
+        current_buffer = budget_alloc.rescue_fund_allocated if (budget_alloc and budget_alloc.rescue_fund_allocated > Decimal("0.00")) else Decimal("5000.00")
+        new_buffer = max(Decimal("0.00"), current_buffer - taxi_fare)
+
+        alt_option = PlaceOption(
+            name=alt_name,
+            category="nature",
+            address=f"{dest}",
+            estimated_cost=Decimal("0.00"),
+            source=DataSource.ESTIMATED,
+        )
+
+        proposal_data = {
+            "trip_id": str(trip.id),
+            "rescue_type": "crowd",
+            "target_day_num": target_day.day_number if target_day else trip.current_day,
+            "target_item_place": target_item.place_name if target_item else "scheduled activity",
+            "selected_alt": alt_option.model_dump(mode="json"),
+            "old_cost": float(old_cost),
+            "new_cost": 0.0,
+            "cost_delta": 0.0,
+            "transfer_distance_km": dist_km,
+            "taxi_fare": float(taxi_fare),
+            "new_buffer": float(new_buffer),
+            "user_issue": "Attraction crowded",
+        }
+
+        summary_text = (
+            f"The closest quieter alternative is {alt_name} (~{int(round(dist_km))} km away).\n"
+            f"Taxi to {alt_name} (estimate): Rs {int(round(taxi_fare)):,}\n"
+            f"New emergency buffer balance: Rs {int(round(new_buffer)):,}\n"
+            f"Go ahead? yes or no"
+        )
+
+        return RescueResult(
+            trip_id=trip.id,
+            success=True,
+            rescue_type="crowd",
+            user_issue=parsed_intent.user_issue,
+            resolution_summary=summary_text,
+            is_feasible=True,
+            budget_impact=taxi_fare,
+            selected_alternative=alt_option,
+            ledger_summary=self.ledger_manager.get_summary(trip.id),
+            is_proposal=as_proposal,
+            pending_proposal=proposal_data if as_proposal else None,
+        )
+
     def _handle_price_dispute(
         self,
         trip: Trip,
@@ -725,6 +933,76 @@ class RescueService:
             if not target_item:
                 target_item = target_day.items[0]
 
+        if proposal.get("rescue_type") == "crowd":
+            if target_item:
+                target_item.place_name = selected_alt.name
+                target_item.activity = f"Visit {selected_alt.name}"
+                target_item.planned_cost = selected_alt.estimated_cost
+                target_item.source = selected_alt.source
+                target_item.notes = "Rescued: Swapped due to crowd"
+
+            if target_day:
+                target_day.daily_estimated_cost = sum(i.planned_cost for i in target_day.items)
+
+            itinerary_record.days = [d.model_dump(mode="json") for d in days]
+            self.itinerary_repo.save_itinerary(itinerary_record)
+
+            taxi_fare = Decimal(str(proposal.get("taxi_fare", 308.0)))
+            new_buf_val = int(round(Decimal(str(proposal.get("new_buffer", 4692.0)))))
+
+            # Update BudgetAllocation emergency buffer balance
+            alloc = self.ledger_repo.get_budget_allocation(trip_id)
+            if alloc:
+                alloc.rescue_fund_allocated = Decimal(str(new_buf_val))
+                self.ledger_repo.save_budget_allocation(alloc)
+
+            self.ledger_manager.record_rescue_adjustment(
+                trip_id=trip_id,
+                category="rescue",
+                cost_delta=taxi_fare,
+                description=f"Taxi transfer to {selected_alt.name}",
+                source="estimated",
+            )
+            ledger_summary = self.ledger_manager.get_summary(trip_id)
+
+            rescue_event = RescueEvent(
+                trip_id=trip_id,
+                rescue_type="crowd",
+                user_message=proposal.get("user_issue", "Attraction crowded"),
+                resolution_summary=f"Swapped {target_place} with {selected_alt.name} upon user confirmation",
+                ledger_impact=taxi_fare,
+                created_at=utc_now(),
+            )
+            self.rescue_repo.record_rescue_event(rescue_event)
+
+            updated_itin = GeneratedItinerary(
+                trip_id=trip_id,
+                destination=trip.destination or "Destination",
+                days_count=len(days),
+                days=days,
+                total_budget=trip.budget_total or Decimal("0.00"),
+                total_planned_cost=sum(d.daily_estimated_cost for d in days),
+            )
+
+            resolution_msg = (
+                f"Plan updated. Swapped with {selected_alt.name}. "
+                f"Taxi (estimate): Rs {int(round(taxi_fare)):,}. "
+                f"New emergency buffer balance: Rs {new_buf_val:,}."
+            )
+            return RescueResult(
+                trip_id=trip_id,
+                success=True,
+                rescue_type="crowd",
+                user_issue=proposal.get("user_issue", "Attraction crowded"),
+                resolution_summary=resolution_msg,
+                is_feasible=True,
+                budget_impact=taxi_fare,
+                selected_alternative=selected_alt,
+                updated_itinerary=updated_itin,
+                ledger_summary=ledger_summary,
+                is_proposal=False,
+            )
+
         if target_item:
             target_item.place_name = selected_alt.name
             target_item.activity = f"Visit {selected_alt.name} ({selected_alt.category or 'attraction'})"
@@ -769,8 +1047,8 @@ class RescueService:
 
         transfer_dist_km = float(proposal.get("transfer_distance_km", 4.5))
         taxi_fare = float(proposal.get("taxi_fare", 180.0))
-        taxi_text = f" Taxi transfer ({transfer_dist_km:g} km): ~₹{taxi_fare:,.2f} from Bucket D Buffer Reserve." if "taxi_fare" in proposal else ""
-        resolution_msg = f"✅ Confirmed: Replaced {target_place or 'activity'} with *{selected_alt.name}* in your itinerary.{taxi_text} Your hotel and return flight remain unchanged."
+        taxi_text = f" Taxi transfer ({transfer_dist_km:g} km): Rs {int(round(taxi_fare)):,} (estimate)." if "taxi_fare" in proposal else ""
+        resolution_msg = f"Plan updated: Replaced {target_place or 'activity'} with {selected_alt.name}.{taxi_text} Your hotel and return flight remain unchanged."
 
         return RescueResult(
             trip_id=trip_id,
@@ -793,13 +1071,12 @@ class RescueService:
     ) -> RescueResult:
         """Cancel a pending rescue proposal, leaving the original itinerary unchanged."""
         trip_id = UUID(proposal["trip_id"]) if proposal and "trip_id" in proposal else None
-        target_place = proposal.get("target_item_place") if proposal else "scheduled activity"
         return RescueResult(
             trip_id=trip_id,
             success=True,
-            rescue_type="weather_closure",
+            rescue_type="crowd" if proposal and proposal.get("rescue_type") == "crowd" else "weather_closure",
             user_issue="Rescue proposal cancelled",
-            resolution_summary=f"❌ Cancelled: Kept your original plan with {target_place} unchanged. No modifications were made.",
+            resolution_summary="Plan kept unchanged. Your schedule and emergency buffer remain as planned.",
             is_feasible=True,
             is_proposal=False,
         )

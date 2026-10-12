@@ -16,25 +16,28 @@ class IntentRepository:
     def save_trip_intent(self, intent: TripIntent) -> TripIntent:
         """Persist an extracted trip intent."""
         if self._client:
-            res = (
-                self._client.table("trip_intents")
-                .insert({
-                    "id": str(intent.id),
-                    "trip_id": str(intent.trip_id),
-                    "budget": float(intent.budget),
-                    "currency": intent.currency,
-                    "people": intent.people,
-                    "days": intent.days,
-                    "origin": intent.origin,
-                    "destination": intent.destination,
-                    "interests": intent.interests,
-                    "traveler_type": intent.traveler_type,
-                    "raw_prompt": intent.raw_prompt,
-                    "extracted_at": intent.extracted_at.isoformat(),
-                })
-                .execute()
-            )
-            return TripIntent.model_validate(res.data[0])
+            try:
+                res = (
+                    self._client.table("trip_intents")
+                    .insert({
+                        "id": str(intent.id),
+                        "trip_id": str(intent.trip_id),
+                        "budget": float(intent.budget),
+                        "currency": intent.currency,
+                        "people": intent.people,
+                        "days": intent.days,
+                        "origin": intent.origin,
+                        "destination": intent.destination,
+                        "interests": intent.interests,
+                        "traveler_type": intent.traveler_type,
+                        "raw_prompt": intent.raw_prompt,
+                        "extracted_at": intent.extracted_at.isoformat(),
+                    })
+                    .execute()
+                )
+                return TripIntent.model_validate(res.data[0])
+            except Exception:
+                pass
 
         self._memory_store[intent.trip_id] = intent
         return intent

@@ -90,6 +90,30 @@ _CITY_TO_IATA: dict[str, str] = {
     "new york":     "JFK",
 }
 
+# -------------------------------------------------------------------------
+# No-airport transfer routing: destinations reachable by flight to nearest
+# airport + onward road/taxi transfer.  Transfer times are approximate and
+# labeled clearly in the preview so users are never misled.
+# -------------------------------------------------------------------------
+_NO_AIRPORT_TRANSFER: dict[str, dict] = {
+    "munnar":    {"nearest_city": "Kochi",      "iata": "COK", "transfer_km": 130, "transfer_hours": 3.5, "mode": "taxi"},
+    "ooty":      {"nearest_city": "Coimbatore", "iata": "CJB", "transfer_km": 86,  "transfer_hours": 2.5, "mode": "taxi"},
+    "coorg":     {"nearest_city": "Mangalore",  "iata": "IXE", "transfer_km": 160, "transfer_hours": 4.0, "mode": "taxi"},
+    "kodaikanal":{"nearest_city": "Madurai",    "iata": "IXM", "transfer_km": 120, "transfer_hours": 3.0, "mode": "taxi"},
+    "manali":    {"nearest_city": "Chandigarh", "iata": "IXC", "transfer_km": 310, "transfer_hours": 9.0, "mode": "bus/taxi"},
+    "shimla":    {"nearest_city": "Chandigarh", "iata": "IXC", "transfer_km": 120, "transfer_hours": 3.5, "mode": "taxi"},
+    "rishikesh": {"nearest_city": "Dehradun",   "iata": "DED", "transfer_km": 43,  "transfer_hours": 1.5, "mode": "taxi"},
+    "mussoorie": {"nearest_city": "Dehradun",   "iata": "DED", "transfer_km": 35,  "transfer_hours": 1.0, "mode": "taxi"},
+    "wayanad":   {"nearest_city": "Calicut",    "iata": "CCJ", "transfer_km": 75,  "transfer_hours": 2.0, "mode": "taxi"},
+    "thekkady":  {"nearest_city": "Madurai",    "iata": "IXM", "transfer_km": 140, "transfer_hours": 3.5, "mode": "taxi"},
+    "alleppey":  {"nearest_city": "Kochi",      "iata": "COK", "transfer_km": 85,  "transfer_hours": 1.5, "mode": "taxi"},
+    "yercaud":   {"nearest_city": "Salem",      "iata": "SXV", "transfer_km": 30,  "transfer_hours": 1.0, "mode": "taxi"},
+    "hampi":     {"nearest_city": "Hubli",      "iata": "HBX", "transfer_km": 160, "transfer_hours": 3.5, "mode": "bus/taxi"},
+    "gokarna":   {"nearest_city": "Goa",        "iata": "GOI", "transfer_km": 120, "transfer_hours": 3.0, "mode": "taxi"},
+    "varkala":   {"nearest_city": "Trivandrum", "iata": "TRV", "transfer_km": 55,  "transfer_hours": 1.5, "mode": "taxi"},
+    "kabini":    {"nearest_city": "Mysore",     "iata": "MYQ", "transfer_km": 80,  "transfer_hours": 2.0, "mode": "taxi"},
+}
+
 
 def resolve_iata(city: str) -> str | None:
     """Resolve a city/region name to a SerpApi-compatible IATA airport code.
@@ -111,6 +135,29 @@ def resolve_iata(city: str) -> str | None:
     if len(key) == 3 and key.upper() in [v for v in _CITY_TO_IATA.values() if v]:
         return key.upper()
     return result
+
+
+def resolve_nearest_airport_with_transfer(destination: str) -> dict | None:
+    """Return nearest airport info for destinations that have no direct airport.
+
+    Used to route flights via the nearest city and add a labeled transfer leg
+    (taxi/bus) in the preview so the user is never shown a misleading direct-flight
+    option to a no-airport destination.
+
+    Returns:
+        dict with keys: nearest_city, iata, transfer_km, transfer_hours, mode
+        or None if the destination has its own airport (or is unknown).
+    """
+    if not destination or not isinstance(destination, str):
+        return None
+    key = destination.strip().lower()
+    info = _NO_AIRPORT_TRANSFER.get(key)
+    if info:
+        logger.info(
+            "[LOCATION] %r has no direct airport. Routing via %s (%s) + %s transfer (~%.1f hrs).",
+            destination, info["nearest_city"], info["iata"], info["mode"], info["transfer_hours"],
+        )
+    return info
 
 
 def resolve_hotel_query(city: str) -> str:

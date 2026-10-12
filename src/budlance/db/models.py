@@ -223,7 +223,7 @@ class BudgetAllocation(BaseModel):
 # ============================================================================
 # 10. Ledger Entry
 # ============================================================================
-LedgerCategory = Literal["fixed_booking", "daily_survival", "activities", "rescue"]
+LedgerCategory = Literal["fixed_booking", "daily_survival", "activities", "rescue", "total_spend"]
 ExpenseSource = Literal["live", "estimated", "fallback", "user_reported"]
 
 
@@ -273,7 +273,7 @@ class PlanAttempt(BaseModel):
 # ============================================================================
 # 12. Rescue Event
 # ============================================================================
-RescueType = Literal["weather_closure", "price_dispute", "unknown"]
+RescueType = Literal["weather_closure", "price_dispute", "crowd", "unknown"]
 
 
 class RescueEvent(BaseModel):

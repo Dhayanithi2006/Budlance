@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     serpapi_api_key: str = Field(default="", alias="SERPAPI_API_KEY")
     serpapi_fallback_api_key: str = Field(default="", alias="SERPAPI_FALLBACK_API_KEY")
     serpapi_live_enabled: bool = Field(default=True, alias="SERPAPI_LIVE_ENABLED")
+    serpapi_call_cap: int = Field(default=12, alias="SERPAPI_CALL_CAP")
 
     # Database & Cache (Supabase PostgreSQL)
     supabase_url: str = Field(default="", alias="SUPABASE_URL")

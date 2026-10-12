@@ -90,6 +90,12 @@ TRIP_COMPLETE:
   Do not invent an expense amount.
   Do NOT classify generic ambiguous conversational endings like "thanks", "that's it", "okay" as TRIP_COMPLETE unless the user clearly states the trip is over.
 
+BOOKING_LINKS:
+  User is asking for booking or reservation links for their hotel, flight, or both.
+  Examples: "link for booking hotels", "hotel link", "book hotel", "send hotel booking link",
+            "hotel booking link anuppu", "flight link", "book flights", "booking links", "send me the links".
+  Set booking_link_target to "hotel", "flight", or "all".
+
 UNRECOGNIZED:
   Message does not clearly match any action.
   Examples: "ok", "hmm", "not sure", "what?", "haha"
@@ -321,16 +327,17 @@ Your job is to classify the issue and extract key details into a structured JSON
 CRITICAL INSTRUCTIONS:
 1. Return ONLY a valid JSON object matching the schema below.
 2. Classify "rescue_type" into one of:
+   - "crowd": Attraction is crowded, packed, too many people, or user wants alternative venue/activity due to crowd.
    - "weather_closure": Weather disruption (rain, heatwave) or closed venue/attraction.
    - "price_dispute": Driver, merchant, or vendor asking for high/unexpected fares or prices.
    - "unknown": Message cannot be resolved via rescue workflows.
 3. For "price_dispute", extract the numerical price mentioned into "reported_price", the service into "service_type" (e.g. "auto", "taxi", "hotel"), and any ride distance mentioned in km into "distance_km" (e.g. 12.0 for "12 km", null if absent).
-4. For "weather_closure", extract any location or attraction mentioned into "location_or_context".
+4. For "weather_closure" or "crowd", extract any location or attraction mentioned into "location_or_context".
 5. Do NOT perform budget arithmetic, search queries, or itinerary replanning.
 
 JSON Schema to return:
 {
-  "rescue_type": "weather_closure" | "price_dispute" | "unknown",
+  "rescue_type": "weather_closure" | "price_dispute" | "crowd" | "unknown",
   "user_issue": string summary of the issue,
   "location_or_context": string or null,
   "reported_price": number or null,

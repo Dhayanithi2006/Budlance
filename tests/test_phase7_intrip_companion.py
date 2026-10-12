@@ -450,7 +450,7 @@ async def test_mandatory_example_2_rescue_proposal_rejected(orch, repos, active_
         message="No, keep my original plan",
     )
     assert cancel_res.status == "RESCUE"
-    assert "Cancelled" in cancel_res.message_text
+    assert "Plan kept unchanged" in cancel_res.message_text
     assert "Tea Museum" in cancel_res.message_text or "unchanged" in cancel_res.message_text
 
     # Pending proposal cleared
@@ -684,7 +684,7 @@ async def test_reg12_pending_action_decision_lifecycle(orch, repos, active_munna
 
     # User cancels
     cancel = await orch.handle_user_message(chat_id, chat_id, "no")
-    assert "Cancelled" in cancel.message_text
+    assert "Plan kept unchanged" in cancel.message_text
     assert repos["conversation_repo"].get_pending_rescue_proposal(chat_id) is None
 
 
@@ -729,9 +729,9 @@ async def test_reg15_trip_completion_reconciliation_partial_spend_disclosure(orc
     # Provide reconciliation amount
     final_res = await orch.handle_user_message(chat_id, chat_id, "₹18,500")
     assert final_res.status == "COMPLETED"
-    assert "Planned budget: ₹25,000" in final_res.message_text
-    assert "Recorded actual spend: ₹18,500" in final_res.message_text
-    assert "Disclosure:" in final_res.message_text
+    assert "Planned budget: Rs 25,000" in final_res.message_text
+    assert "Recorded actual spend: Rs 18,500" in final_res.message_text
+    assert "user-reported" in final_res.message_text
 
 
 # Reg 16: Chat and trip isolation across concurrent conversations
@@ -901,7 +901,7 @@ async def test_movie_night_honest_fallback_in_remote_destination(orch, active_mu
         message="Are there any movie showtimes tonight?",
     )
     assert res.status == "IN_TRIP_QUERY"
-    assert "Movie Night in Munnar" in res.message_text
+    assert "Movie options in Munnar" in res.message_text
     assert "No commercial movie theatres" in res.message_text
     assert "bookmyshow.com" in res.message_text
 
@@ -937,7 +937,7 @@ async def test_movie_night_with_local_cinema_discovered(orch, repos, active_munn
         message="movie night",
     )
     assert res.status == "IN_TRIP_QUERY"
-    assert "Movie Night in Munnar" in res.message_text
+    assert "Movie options in Munnar" in res.message_text
     assert "Munnar Scenic Cinema Talkies" in res.message_text
     assert "bookmyshow.com" in res.message_text
 
@@ -962,11 +962,11 @@ async def test_crowd_swap_nearby_search_taxi_estimate_and_i_will_go(orch, repos,
     )
 
     assert res_prop.status == "RESCUE"
-    assert "Proposed replacement" in res_prop.message_text
-    assert "Estimated taxi transfer" in res_prop.message_text
-    assert "Bucket D" in res_prop.message_text or "Buffer / Reserve" in res_prop.message_text
+    assert "Wonder Valley" in res_prop.message_text
+    assert "Taxi to Wonder Valley" in res_prop.message_text
+    assert "emergency buffer balance" in res_prop.message_text
     assert "km" in res_prop.message_text
-    assert "I will go" in res_prop.message_text
+    assert "Go ahead?" in res_prop.message_text
 
     # Verify baseline itinerary has NOT been mutated yet
     itin_mid = repos["itinerary_repo"].get_itinerary(trip_id)
@@ -980,8 +980,8 @@ async def test_crowd_swap_nearby_search_taxi_estimate_and_i_will_go(orch, repos,
     )
 
     assert res_confirm.status == "RESCUE"
-    assert "Confirmed" in res_confirm.message_text
-    assert "Bucket D" in res_confirm.message_text or "Taxi transfer" in res_confirm.message_text
+    assert "Plan updated" in res_confirm.message_text
+    assert "Taxi (estimate)" in res_confirm.message_text
 
     # 3. Verify itinerary in repo was updated to replace Mattupetty Lake
     itin_after = repos["itinerary_repo"].get_itinerary(trip_id)

@@ -344,7 +344,7 @@ async def test_e_log_expense_after_activation(orchestrator, repos):
 
     assert res_after.status == "EXPENSE_LOGGED"
     assert res_after.trip_id == trip.id
-    assert "₹1,800" in res_after.message_text
+    assert "Rs 1,800" in res_after.message_text
 
     # Verify expense is persisted in the ledger
     ledger_entries = repos["ledger_repo"].get_ledger_entries(trip.id)

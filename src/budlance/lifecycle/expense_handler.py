@@ -151,7 +151,7 @@ class ExpenseLifecycleHandler:
             return ExpenseResult(
                 trip_id=active_trip.id,
                 status="INVALID_EXPENSE",
-                message_text="Please specify a valid expense amount to log (e.g., 'Spent ₹500 on lunch').",
+                message_text="Please specify a valid expense amount to log (e.g., 'Spent Rs 500 on lunch').",
                 error="INVALID_EXPENSE",
             )
 
@@ -188,13 +188,13 @@ class ExpenseLifecycleHandler:
                 return ExpenseResult(
                     trip_id=active_trip.id,
                     status="EXPENSE_LOGGED",
-                    message_text=f"Reversed expense of ₹{formatted_rev} for Day {resolved_day}.\n\nDay {resolved_day} is still active.",
+                    message_text=f"Reversed expense of Rs {formatted_rev} for Day {resolved_day}.\n\nDay {resolved_day} is still active.",
                     ledger_summary=summary,
                 )
             return ExpenseResult(
                 trip_id=active_trip.id,
                 status="INVALID_EXPENSE",
-                message_text=f"Could not find matching recorded expense of ₹{parsed.reversal_target_amount} to reverse.",
+                message_text=f"Could not find matching recorded expense of Rs {parsed.reversal_target_amount} to reverse.",
                 error="REVERSAL_TARGET_NOT_FOUND",
             )
 
@@ -220,7 +220,7 @@ class ExpenseLifecycleHandler:
                     effective_event_id, resolved_day,
                 )
                 formatted_amt = format_currency_amount(parsed.amount)
-                msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                msg = f"Expense of Rs {formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
                 return ExpenseResult(
                     trip_id=active_trip.id,
                     status="EXPENSE_LOGGED",
@@ -256,7 +256,7 @@ class ExpenseLifecycleHandler:
                 )
                 total_amt = sum(it.amount for it in expense_items)
                 formatted_amt = format_currency_amount(total_amt)
-                msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                msg = f"Expense of Rs {formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
                 return ExpenseResult(
                     trip_id=active_trip.id,
                     status="EXPENSE_LOGGED",
@@ -265,7 +265,7 @@ class ExpenseLifecycleHandler:
                 )
             total_amt = sum(it.amount for it in expense_items)
             formatted_amt = format_currency_amount(total_amt)
-            parts_desc = " and ".join(f"₹{format_currency_amount(it.amount)} on {it.description or it.category}" for it in expense_items)
+            parts_desc = " and ".join(f"Rs {format_currency_amount(it.amount)} on {it.description or it.category}" for it in expense_items)
             spend_prefix = f"Recorded {parts_desc} for Day {resolved_day}."
         else:
             # Single expense path
@@ -286,11 +286,11 @@ class ExpenseLifecycleHandler:
                         and (utc_now() - e.created_at).total_seconds() < 60
                     ):
                         logger.info(
-                            "[EXPENSE_LIFECYCLE] Suppressed duplicate expense ₹%s for Day %s (within 60s, no event_id)",
+                            "[EXPENSE_LIFECYCLE] Suppressed duplicate expense Rs %s for Day %s (within 60s, no event_id)",
                             parsed.amount, resolved_day,
                         )
                         formatted_amt = format_currency_amount(parsed.amount)
-                        msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                        msg = f"Expense of Rs {formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
                         return ExpenseResult(
                             trip_id=active_trip.id,
                             status="EXPENSE_LOGGED",
@@ -314,7 +314,7 @@ class ExpenseLifecycleHandler:
                     effective_event_id,
                 )
                 formatted_amt = format_currency_amount(parsed.amount)
-                msg = f"Expense of ₹{formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
+                msg = f"Expense of Rs {formatted_amt} for Day {resolved_day} was already recorded.\n\nDay {resolved_day} is still active."
                 return ExpenseResult(
                     trip_id=active_trip.id,
                     status="EXPENSE_LOGGED",
@@ -322,7 +322,7 @@ class ExpenseLifecycleHandler:
                     ledger_summary=self.ledger_manager.get_summary(active_trip.id),
                 )
             formatted_amt = format_currency_amount(parsed.amount)
-            spend_prefix = f"Recorded ₹{formatted_amt} for Day {resolved_day}."
+            spend_prefix = f"Recorded Rs {formatted_amt} for Day {resolved_day}."
 
         is_day_complete = bool(getattr(parsed, "complete_day", False) or getattr(parsed, "day_completed", False))
         if not is_day_complete:
@@ -348,7 +348,7 @@ class ExpenseLifecycleHandler:
                         self.itinerary_repo.save_itinerary(itinerary_record)
 
                     msg = (
-                        f"Recorded ₹{formatted_amt} for Day {resolved_day}.\n\n"
+                        f"Recorded Rs {formatted_amt} for Day {resolved_day}.\n\n"
                         f"Day {resolved_day} completed. Moving to Day {next_day}."
                     )
                     logger.info(
@@ -364,7 +364,7 @@ class ExpenseLifecycleHandler:
                         )
                         self.itinerary_repo.save_itinerary(itinerary_record)
 
-                    msg = f"Recorded ₹{formatted_amt} for Day {resolved_day}.\n\nDay {resolved_day} completed."
+                    msg = f"Recorded Rs {formatted_amt} for Day {resolved_day}.\n\nDay {resolved_day} completed."
                     logger.info(
                         "[EXPENSE_LIFECYCLE] Final Day %s completed. Trip remains ACTIVE.",
                         resolved_day,
@@ -379,7 +379,7 @@ class ExpenseLifecycleHandler:
                     self.itinerary_repo.save_itinerary(itinerary_record)
 
                 msg = (
-                    f"Recorded ₹{formatted_amt} for Day {resolved_day}.\n\n"
+                    f"Recorded Rs {formatted_amt} for Day {resolved_day}.\n\n"
                     f"Day {resolved_day} completed. Current day remains Day {active_trip.current_day}."
                 )
                 logger.info(
@@ -389,7 +389,7 @@ class ExpenseLifecycleHandler:
             else:
                 # Future day completion attempt — record expense but do not advance current_day
                 msg = (
-                    f"Recorded ₹{formatted_amt} for Day {resolved_day}.\n\n"
+                    f"Recorded Rs {formatted_amt} for Day {resolved_day}.\n\n"
                     f"Day {active_trip.current_day} is still active."
                 )
                 logger.info(

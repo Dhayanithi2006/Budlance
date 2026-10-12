@@ -71,12 +71,13 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full layer-by-layer d
 | Package manager | `uv` |
 | Web framework | FastAPI + uvicorn |
 | Telegram | `python-telegram-bot` v21+ |
-| AI gateway | OpenRouter |
+| AI gateway | Google Gemini (`gemini-flash-latest`) |
 | Schema validation | Pydantic v2 |
 | HTTP client | httpx |
-| Live travel data | SerpApi |
+| Live travel data | SerpApi (Google Flights, Hotels, Maps) |
 | Database | Supabase (PostgreSQL) |
-| Testing | pytest + pytest-asyncio |
+| Tunneling | Cloudflare Quick Tunnel (`trycloudflare.com`) / ngrok |
+| Testing | pytest + pytest-asyncio (996 tests) |
 | Containerisation | Docker |
 
 ---
@@ -162,7 +163,7 @@ WEBHOOK_URL=""               # e.g. https://your-domain.com
 ## Running tests
 
 ```bash
-# Run the complete test suite (119 tests)
+# Run the complete test suite (996 tests)
 uv run pytest tests/ -v
 
 # Run a specific test file
@@ -308,7 +309,7 @@ budlance/
 │   ├── db/           # Supabase client, domain models, repositories
 │   ├── schemas/      # Shared travel schemas (FlightOption, HotelOption, …)
 │   └── config.py     # Centralized pydantic-settings configuration
-├── tests/            # 746 pytest tests (100% offline baseline)
+├── tests/            # 992 pytest tests (100% passing offline baseline)
 ├── data/             # Static fallback datasets (trains, buses, rate tables)
 ├── docs/
 │   ├── DEMO_SCRIPT.md    # Rigid, rehearsal-verified 5-scenario live demo script

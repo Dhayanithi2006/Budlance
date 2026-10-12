@@ -31,6 +31,7 @@ class SerpApiGateway:
         http_client: httpx.AsyncClient | None = None,
         serpapi_live_enabled: bool | None = None,
         telemetry: SerpApiTelemetry | None = None,
+        call_cap: int | None = None,
     ) -> None:
         settings = get_settings()
         if api_key is not None:
@@ -51,6 +52,8 @@ class SerpApiGateway:
             else getattr(settings, "serpapi_live_enabled", True)
         )
         self.telemetry = telemetry or SerpApiTelemetry()
+        self.call_cap = call_cap if call_cap is not None else getattr(settings, "serpapi_call_cap", 12)
+        self.calls_made = 0
 
     @property
     def has_credentials(self) -> bool:
@@ -80,6 +83,14 @@ class SerpApiGateway:
             raise SerpApiAuthError(
                 "SerpApi API key is not configured. Set SERPAPI_API_KEY in .env."
             )
+
+        if self.call_cap is not None and self.calls_made >= self.call_cap:
+            logger.warning(
+                "[SERPAPI] provider=serpapi operation=%s outcome=call_cap_exceeded call_type=live call_cap=%d",
+                engine,
+                self.call_cap,
+            )
+            raise SerpApiRateLimitError(f"SerpApi live call cap reached ({self.call_cap}).")
 
         # Instrumentation: log call attempt boundary (no secrets, no user data)
         logger.info(
@@ -194,6 +205,7 @@ class SerpApiGateway:
                             if retry_resp.status_code == 200:
                                 data = retry_resp.json()
                                 if isinstance(data, dict) and "error" not in data:
+                                    self.calls_made += 1
                                     return data
                     logger.warning(
                         "[SERPAPI] provider=serpapi operation=%s outcome=http_error http_status=%d",
@@ -221,8 +233,9 @@ class SerpApiGateway:
                         raise SerpApiRateLimitError(f"SerpApi quota exceeded: {err_msg}")
                     raise SerpApiResponseError(f"SerpApi API error: {err_msg}")
 
+                self.calls_made += 1
                 logger.info(
-                    "[SERPAPI] provider=serpapi operation=%s outcome=success attempts_used=%d",
+                    "[SERPAPI] provider=serpapi operation=%s outcome=success attempts_used=%d call_type=live",
                     engine,
                     attempt_counter["count"],
                 )

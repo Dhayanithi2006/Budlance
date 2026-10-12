@@ -59,8 +59,9 @@ class ItineraryDay(BaseModel):
 
     day_number: int
     date_str: str | None = None
-    theme_or_summary: str
+    theme_or_summary: str = ""
     region: str | None = None
+    hotel_recommendation: str | None = None
     items: list[ItineraryItem] = Field(default_factory=list)
     daily_estimated_cost: Decimal = Decimal("0.00")
     status: DayStatus = "UPCOMING"

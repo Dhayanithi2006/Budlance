@@ -217,13 +217,38 @@ async def demo_bypass(request: Request) -> dict[str, Any]:
 
 
 @router.get("/book/{booking_id}", response_class=HTMLResponse, tags=["Booking"])
-async def booking_relay(booking_id: str):
+async def booking_relay(booking_id: str, request: Request):
     """Booking relay endpoint that looks up stored booking_request and returns an auto-submitting POST form HTML."""
     from budlance.db.repositories.cache_repo import CacheRepository
 
     repo = CacheRepository()
     booking_req = repo.get_booking_request(booking_id)
     if not booking_req or not isinstance(booking_req, dict):
+        accept_header = request.headers.get("accept", "")
+        if "text/html" in accept_header and "application/json" not in accept_header:
+            expired_html = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Booking Link Expired - Budlance</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 60px 20px; background: #0b0f19; color: #f3f4f6; }
+        .card { max-width: 520px; margin: 0 auto; background: #1f2937; padding: 36px; border-radius: 12px; border: 1px solid #374151; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        h1 { font-size: 22px; color: #f59e0b; margin-bottom: 12px; }
+        p { color: #9ca3af; font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
+        a { display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: 600; }
+        a:hover { background: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Booking Link Expired or Unavailable</h1>
+        <p>This flight booking link has expired or could not be found. Flight fares and seat availability update frequently. Please return to Telegram and request an updated plan, or search directly on Google Flights.</p>
+        <a href="https://www.google.com/travel/flights">Search Flights on Google</a>
+    </div>
+</body>
+</html>"""
+            return HTMLResponse(content=expired_html, status_code=status.HTTP_404_NOT_FOUND)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Booking session expired or not found. Please search again on Google Flights.",
@@ -237,6 +262,10 @@ async def booking_relay(booking_id: str):
         )
 
     post_data = booking_req.get("post_data")
+    if not post_data:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=target_url, status_code=status.HTTP_302_FOUND)
+
     form_inputs: list[str] = []
     if isinstance(post_data, dict):
         for k, v in post_data.items():

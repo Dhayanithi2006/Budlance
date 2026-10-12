@@ -4,6 +4,7 @@ AI is strictly non-authoritative for budget math, feasibility, and fare arithmet
 These schemas represent extracted user intent before passing to the Reverse-Budget Engine.
 """
 
+import re
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal
@@ -68,6 +69,7 @@ class TripAction(str, Enum):
     TRIP_COMPLETE = "TRIP_COMPLETE"
     IN_TRIP_QUERY = "IN_TRIP_QUERY"
     MANAGE_BOOKING = "MANAGE_BOOKING"
+    BOOKING_LINKS = "BOOKING_LINKS"
     UNRECOGNIZED = "UNRECOGNIZED"
 
 
@@ -137,6 +139,46 @@ def normalize_expense_category(val: Any) -> str | None:
     if any(k in s for k in ("hotel", "stay", "room", "hostel", "resort", "accommodation", "lodging")):
         return "stay"
     return s
+
+
+def classify_booking_links_request(text: str) -> tuple[bool, str | None]:
+    """Classify if user message is asking for booking links in English or Tanglish.
+
+    Returns (is_booking_links_request, target) where target is 'hotel', 'flight', or 'all'.
+    """
+    clean = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower()).strip()
+    words = clean.split()
+    clean_spaced = " " + " ".join(words) + " "
+
+    if any(m in clean_spaced for m in (" movie ", " cinema ", " theatre ", " theater ", " film ")):
+        return False, None
+
+    # Target keywords
+    has_hotel = any(k in clean_spaced for k in (" hotel ", " hotels ", " stay ", " stays ", " room ", " rooms ", " accommodation "))
+    has_flight = any(k in clean_spaced for k in (" flight ", " flights ", " plane ", " airline ", " airlines ", " ticket ", " tickets "))
+
+    # Action / link keywords
+    has_link = any(k in clean_spaced for k in (" link ", " links ", " book ", " booking ", " reserve ", " reservation "))
+    has_tanglish_send = any(k in clean_spaced for k in (" anuppu ", " anupu ", " anupunga ", " kudu ", " kudunga ", " thanga ", " kodu ", " sollunga "))
+
+    # Generic link phrases
+    generic_phrases = (
+        "booking links", "booking link", "send me the links", "send me links",
+        "send links", "give links", "give me the links", "all links", "both links",
+        "send the links", "give the links", "booking links anuppu", "links anuppu",
+        "links kudu", "send me booking links", "give me booking links",
+    )
+    is_generic = any(gp in clean for gp in generic_phrases) or (clean in ("links", "booking links", "book links", "send links"))
+
+    if (has_hotel and (has_link or has_tanglish_send)) and (has_flight and (has_link or has_tanglish_send)):
+        return True, "all"
+    if has_hotel and (has_link or has_tanglish_send):
+        return True, "hotel"
+    if has_flight and (has_link or has_tanglish_send):
+        return True, "flight"
+    if is_generic:
+        return True, "all"
+    return False, None
 
 
 class ExpenseItem(BaseModel):
@@ -252,6 +294,10 @@ class ParsedTripIntent(BaseModel):
     completion_reason: str | None = Field(
         default=None,
         description="Optional reason stated by user for completing or closing the trip.",
+    )
+    booking_link_target: Literal["hotel", "flight", "all"] | None = Field(
+        default=None,
+        description="Target for booking links request: hotel, flight, or all.",
     )
     is_delta: bool = Field(
         default=False,
@@ -597,8 +643,30 @@ class ParsedTripIntent(BaseModel):
                 new_budget = self.budget + update.budget_delta
             else:
                 new_budget = update.budget if update.budget is not None else self.budget
+
+            new_days = self.days
+            if update.is_days_delta and update.days_delta is not None and self.days is not None:
+                new_days = max(1, self.days + update.days_delta)
+            elif update.days is not None:
+                new_days = update.days
+
+            eff_end = self.end_date
+            if update.end_date is not None:
+                eff_end = update.end_date
+            elif (self.start_date or update.start_date) and new_days:
+                try:
+                    from datetime import datetime as dt_cls, timedelta as td_cls
+                    s_str = update.start_date or self.start_date
+                    s_d = dt_cls.strptime(s_str, "%Y-%m-%d").date()
+                    eff_end = (s_d + td_cls(days=max(0, new_days - 1))).strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+
             return self.model_copy(update={
                 "budget": new_budget,
+                "days": new_days,
+                "end_date": eff_end,
+                "start_date": update.start_date if update.start_date else self.start_date,
                 "action": action,
                 "is_delta": False,
                 "budget_delta": None,
@@ -607,20 +675,35 @@ class ParsedTripIntent(BaseModel):
                 "interests": update.interests if update.interests else self.interests,
             })
         if action == TripAction.CHANGE_DAYS:
-            new_days = update.days if update.days is not None else self.days
+            new_days = self.days
+            if update.is_days_delta and update.days_delta is not None and self.days is not None:
+                new_days = max(1, self.days + update.days_delta)
+            elif update.days is not None:
+                new_days = update.days
+
+            new_budget = self.budget
+            if update.is_delta and update.budget_delta is not None and self.budget is not None:
+                new_budget = self.budget + update.budget_delta
+            elif update.budget is not None:
+                new_budget = update.budget
+
             eff_end = self.end_date
             if update.end_date is not None:
                 eff_end = update.end_date
-            elif self.start_date and new_days:
+            elif (self.start_date or update.start_date) and new_days:
                 try:
                     from datetime import datetime as dt_cls, timedelta as td_cls
-                    s_d = dt_cls.strptime(self.start_date, "%Y-%m-%d").date()
+                    s_str = update.start_date or self.start_date
+                    s_d = dt_cls.strptime(s_str, "%Y-%m-%d").date()
                     eff_end = (s_d + td_cls(days=max(0, new_days - 1))).strftime("%Y-%m-%d")
                 except Exception:
                     pass
+
             return self.model_copy(update={
                 "days": new_days,
+                "budget": new_budget,
                 "end_date": eff_end,
+                "start_date": update.start_date if update.start_date else self.start_date,
                 "action": action,
                 "travel_party": update.travel_party if update.travel_party is not None else self.travel_party,
                 "traveler_type": update.traveler_type if update.traveler_type is not None else self.traveler_type,
@@ -702,7 +785,7 @@ class ParsedTripIntent(BaseModel):
         )
 
 
-RescueTypeClassification = Literal["weather_closure", "price_dispute", "unknown"]
+RescueTypeClassification = Literal["weather_closure", "price_dispute", "crowd", "unknown"]
 
 
 class ParsedRescueIntent(BaseModel):
@@ -710,7 +793,7 @@ class ParsedRescueIntent(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     rescue_type: RescueTypeClassification = Field(
-        description="Class of rescue event: weather_closure, price_dispute, or unknown.",
+        description="Class of rescue event: weather_closure, price_dispute, crowd, or unknown.",
     )
     user_issue: str = Field(
         description="Extracted summary of the obstacle or dispute reported by user.",

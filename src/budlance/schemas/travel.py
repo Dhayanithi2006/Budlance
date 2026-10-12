@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID, uuid4
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from budlance.serpapi.models import DataSource
 
 
@@ -24,6 +24,17 @@ class FlightOption(BaseModel):
     departure_time: str | None = None
     arrival_time: str | None = None
     price: Decimal
+
+    @field_validator("price")
+    @classmethod
+    def price_must_be_positive(cls, v: Decimal) -> Decimal:
+        """Reject zero or missing flight prices — placeholder free options are forbidden."""
+        if v is None or v <= Decimal("0.00"):
+            raise ValueError(
+                f"FlightOption.price must be > 0 (got {v!r}). "
+                "Zero-price flight options are forbidden — skip the item in the normalizer instead."
+            )
+        return v
     currency: str = "INR"
     duration_minutes: int | None = None
     stops: int = 0
@@ -54,6 +65,17 @@ class HotelOption(BaseModel):
     address: str | None = None
     price_per_night: Decimal | None = None
     total_price: Decimal
+
+    @field_validator("total_price")
+    @classmethod
+    def total_price_must_be_positive(cls, v: Decimal) -> Decimal:
+        """Reject zero or missing hotel total prices."""
+        if v is None or v <= Decimal("0.00"):
+            raise ValueError(
+                f"HotelOption.total_price must be > 0 (got {v!r}). "
+                "Zero-price hotel options are forbidden — skip the item in the normalizer instead."
+            )
+        return v
     currency: str = "INR"
     rating: float | None = None
     review_count: int | None = None
@@ -65,6 +87,7 @@ class HotelOption(BaseModel):
     amenities: list[str] = Field(default_factory=list)
     property_token: str | None = None
     source: DataSource = DataSource.LIVE
+    is_relaxed_tier: bool = False
     is_fallback: bool = False
     retrieval_timestamp: datetime | None = None
     provenance: Any | None = None
@@ -126,9 +149,21 @@ class TransitOption(BaseModel):
     distance_km: float | None = None
     duration_hours: float | None = None
     price: Decimal
+
+    @field_validator("price")
+    @classmethod
+    def price_must_be_positive(cls, v: Decimal) -> Decimal:
+        """Reject zero or missing transit prices."""
+        if v is None or v <= Decimal("0.00"):
+            raise ValueError(
+                f"TransitOption.price must be > 0 (got {v!r}). "
+                "Zero-price transit options are forbidden — skip the item in the normalizer instead."
+            )
+        return v
+
     currency: str = "INR"
     class_or_type: str | None = None  # e.g., "3A", "SL", "AC Sleeper"
-    source: DataSource = DataSource.FALLBACK
+    source: DataSource = DataSource.ESTIMATE
     is_fallback: bool = True
     retrieval_timestamp: datetime | None = None
     provenance: Any | None = None

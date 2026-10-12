@@ -196,7 +196,7 @@ class TripCompletionHandler:
         )
 
         prompt_text = (
-            f"Your planned trip budget was ₹{format_currency_amount(active_trip.budget_total)}. "
+            f"Your planned trip budget was Rs {int(round(active_trip.budget_total)):,}. "
             f"Would you like to record your final actual spend? You can also say skip."
         )
 
@@ -245,11 +245,12 @@ class TripCompletionHandler:
         # 2. Prevent double-counting: add adjustment for the unreconciled portion
         adjustment = amount - already_recorded
         if adjustment != Decimal("0.00"):
+            entry_desc = "Total trip spend adjustment" if already_recorded == Decimal("0.00") else "Final reconciliation adjustment"
             adj_entry = LedgerEntry(
                 id=uuid4(),
                 trip_id=active_trip.id,
-                category="activities",
-                description="Final reconciliation adjustment",
+                category="total_spend",
+                description=entry_desc,
                 allocated_amount=Decimal("0.00"),
                 planned_amount=Decimal("0.00"),
                 spent_amount=adjustment,
@@ -284,45 +285,19 @@ class TripCompletionHandler:
         # 6. Format final summary
         variance = active_trip.budget_total - final_actual_spent
         if variance > Decimal("0.00"):
-            diff_line = f"Difference: ₹{format_currency_amount(variance)} under planned budget"
+            diff_line = f"Difference: Rs {int(round(variance)):,} under planned budget"
         elif variance < Decimal("0.00"):
-            diff_line = f"Difference: ₹{format_currency_amount(abs(variance))} over planned budget"
+            diff_line = f"Difference: Rs {int(round(abs(variance))):,} over planned budget"
         else:
-            diff_line = "Difference: ₹0 on planned budget"
-
-        cat_spent: dict[str, Decimal] = {}
-        for e in all_entries:
-            if e.actual_amount is not None and e.actual_amount > Decimal("0.00"):
-                cat_spent[e.category] = cat_spent.get(e.category, Decimal("0.00")) + e.actual_amount
-
-        ledger_summary = None
-        unspent_reserve = Decimal("0.00")
-        try:
-            ledger_summary = self.ledger_manager.get_summary(active_trip.id)
-            unspent_reserve = getattr(ledger_summary, "rescue_reserve_remaining", None)
-            if unspent_reserve is None and ledger_summary and getattr(ledger_summary, "allocation", None):
-                unspent_reserve = getattr(ledger_summary.allocation, "rescue_fund_allocated", Decimal("0.00"))
-        except Exception:
-            pass
-        if unspent_reserve is None:
-            unspent_reserve = Decimal("0.00")
+            diff_line = "Difference: Rs 0 on planned budget"
 
         summary_parts = [
-            f"🎉 Trip completed and reconciled!\n",
-            f"Planned budget: ₹{format_currency_amount(active_trip.budget_total)}",
-            f"Recorded actual spend: ₹{format_currency_amount(final_actual_spent)}",
-            f"{diff_line}",
+            "Trip completed and reconciled.\n",
+            f"Planned budget: Rs {int(round(active_trip.budget_total)):,}",
+            f"Recorded actual spend: Rs {int(round(final_actual_spent)):,}",
+            f"{diff_line}\n",
+            "Recorded actual spending is user-reported.",
         ]
-        if cat_spent:
-            summary_parts.append("\n📊 *Actual Spending by Category:*")
-            for cat, amt in cat_spent.items():
-                cat_label = cat.replace("_", " ").title()
-                summary_parts.append(f"• {cat_label}: ₹{format_currency_amount(amt)}")
-
-        if unspent_reserve > Decimal("0.00"):
-            summary_parts.append(f"\n🛡️ *Unspent Reserve:* ₹{format_currency_amount(unspent_reserve)}")
-
-        summary_parts.append("\nℹ️ *Disclosure:* Recorded actual spending is user-reported. Days without recorded expenses are not assumed to be zero.")
         summary = "\n".join(summary_parts)
 
         return CompletionResult(
@@ -378,11 +353,11 @@ class TripCompletionHandler:
         self.conversation_repo.clear_pending_intent(chat_id)
 
         summary = (
-            f"🎉 Trip completed!\n\n"
-            f"Planned budget: ₹{format_currency_amount(active_trip.budget_total)}\n"
-            f"Recorded actual spend: ₹{format_currency_amount(recorded_actual)}\n"
+            f"Trip completed.\n\n"
+            f"Planned budget: Rs {int(round(active_trip.budget_total)):,}\n"
+            f"Recorded actual spend: Rs {int(round(recorded_actual)):,}\n"
             f"Final reconciliation: skipped\n\n"
-            f"ℹ️ *Disclosure:* Recorded actual spending is user-reported. Budlance preserves recorded amounts without assuming unrecorded items were zero."
+            f"Recorded actual spending is user-reported."
         )
 
         return CompletionResult(

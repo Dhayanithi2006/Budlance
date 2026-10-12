@@ -244,7 +244,7 @@ async def test_expense_without_day_completion(active_trip_setup):
     result = await handler.handle_log_expense(chat_id=chat_id, parsed=parsed)
 
     assert result.status == "EXPENSE_LOGGED"
-    assert "Recorded ₹500 for Day 1." in result.message_text
+    assert "Recorded Rs 500 for Day 1." in result.message_text
     assert "Day 1 is still active." in result.message_text
 
     # Current day remains 1
@@ -294,7 +294,7 @@ async def test_explicit_day_number(active_trip_setup):
     result = await handler.handle_log_expense(chat_id=chat_id, parsed=parsed)
 
     assert result.status == "EXPENSE_LOGGED"
-    assert "Recorded ₹800 for Day 2." in result.message_text
+    assert "Recorded Rs 800 for Day 2." in result.message_text
     assert "Day 2 is still active." in result.message_text
 
     # Current day remains 1
@@ -337,7 +337,7 @@ async def test_expense_plus_day_completion(active_trip_setup):
     result = await handler.handle_log_expense(chat_id=chat_id, parsed=parsed)
 
     assert result.status == "EXPENSE_LOGGED"
-    assert "Recorded ₹3,000 for Day 1." in result.message_text
+    assert "Recorded Rs 3,000 for Day 1." in result.message_text
     assert "Day 1 completed. Moving to Day 2." in result.message_text
 
     # Trip current_day advanced to 2
@@ -390,7 +390,7 @@ async def test_final_day_completion_keeps_trip_active(active_trip_setup):
     result = await handler.handle_log_expense(chat_id=chat_id, parsed=parsed)
 
     assert result.status == "EXPENSE_LOGGED"
-    assert "Recorded ₹1,500 for Day 3." in result.message_text
+    assert "Recorded Rs 1,500 for Day 3." in result.message_text
     assert "Day 3 completed." in result.message_text
     assert "Moving to Day" not in result.message_text
 
@@ -645,7 +645,7 @@ async def test_module_level_handle_log_expense(active_trip_setup):
     )
 
     assert res.status == "EXPENSE_LOGGED"
-    assert "Recorded ₹450 for Day 1." in res.message_text
+    assert "Recorded Rs 450 for Day 1." in res.message_text
 
 
 # ============================================================================
@@ -685,7 +685,7 @@ async def test_orchestrator_log_expense_preserves_pending_draft(active_trip_setu
     )
 
     assert res.status == "EXPENSE_LOGGED"
-    assert "Recorded ₹650 for Day 1." in res.message_text
+    assert "Recorded Rs 650 for Day 1." in res.message_text
 
     # Verify pending planning draft was NOT cleared or mutated!
     preserved_draft = repos["conversation_repo"].get_pending_intent(chat_id)

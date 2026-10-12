@@ -507,7 +507,8 @@ class OptimizationEngine:
         else:
             candidates = list(valid)
 
-        # Hard quality relaxation ladder: 4.0/50 -> 3.8/25 -> 3.5/10 -> unrated -> reject
+        # Hard quality relaxation ladder: 4.0/50 -> 3.8/30 -> 3.5/10 -> unrated -> reject
+        is_relaxed = False
         step1 = [
             h for h in candidates
             if (h.rating is not None and float(h.rating) >= 4.0)
@@ -519,10 +520,11 @@ class OptimizationEngine:
             step2 = [
                 h for h in candidates
                 if (h.rating is not None and float(h.rating) >= 3.8)
-                and (h.review_count is None or h.review_count >= 25)
+                and (h.review_count is None or h.review_count >= 30)
             ]
             if step2:
                 candidates = step2
+                is_relaxed = True
             else:
                 step3 = [
                     h for h in candidates
@@ -531,10 +533,12 @@ class OptimizationEngine:
                 ]
                 if step3:
                     candidates = step3
+                    is_relaxed = True
                 else:
                     unrated = [h for h in candidates if h.rating is None and h.review_count is None]
                     if unrated:
                         candidates = unrated
+                        is_relaxed = True
                     else:
                         # Zero hotels pass quality threshold (rating < 3.5 or insufficient reviews)
                         return None
@@ -570,7 +574,10 @@ class OptimizationEngine:
                     h.total_price,
                 )
             )
-            return candidates[0]
+            chosen = candidates[0]
+            if is_relaxed:
+                chosen.is_relaxed_tier = True
+            return chosen
 
         # Normal/value sorting: sort by pref_match desc, rating desc within affordable, or value price
         candidates.sort(
@@ -580,7 +587,10 @@ class OptimizationEngine:
                 h.total_price,
             )
         )
-        return candidates[0]
+        chosen = candidates[0]
+        if is_relaxed:
+            chosen.is_relaxed_tier = True
+        return chosen
 
     def select_preferred_transport(
         self,
